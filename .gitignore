@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Photo Haven runtime output: never commit library data
+*.db
+*.db-wal
+*.db-shm
+.photohaven-cache.*.jsonl
+.photohaven-root.json
+reports/
+quarantine/
+local-config/
+machine.toml
+
+# Never commit photos (fixtures are generated at test time)
+*.jpg
+*.jpeg
+*.heic
+*.heif
+*.mov
+*.mp4
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.dng
+!tests/fixtures/public/**
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
