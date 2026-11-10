@@ -26,9 +26,9 @@ Keeper selection and the last-copy invariant are defined in [08](08-apply-quaran
 
 Same image data, different metadata: for example, a copy whose EXIF was stripped by an upload service, or one that some app re-tagged.
 
-- **Detected by** grouping `contents` on `content_sha256` where more than one `sha256` shares it.
+- **Detected by** grouping `contents` on `content_sha256` where more than one `sha256` shares it. Damaged files have a null `content_sha256` ([03 §8.1](03-format-spec.md#81-content-hash)) and never join a group.
 - **Phase 1:** reported as "same picture, different metadata" groups with a per-group diff of the key metadata fields (date taken, GPS, camera). Not removed by folder decisions, because the last-copy invariant is defined on byte-identical copies.
-- **Later:** an explicit file-level action `remove_equivalent` could quarantine the poorer-metadata copy, with purge verifying `content_sha256` equality (and that the keeper has at least the same date and GPS fields). Deferred until the exact-duplicate flow has earned trust.
+- **Later:** an explicit file-level action `remove_equivalent` could quarantine the poorer-metadata copy, with purge verifying `content_sha256` equality (and that the keeper has at least the same date and GPS fields). It MUST also require the same capture time (`taken_local`, and `taken_offset` when both have one) unless the user picks the pair by hand: M0 found two different shots (blank frames, four days apart) with identical image data. Deferred until the exact-duplicate flow has earned trust.
 
 ## 3. Raw + JPEG pairs
 

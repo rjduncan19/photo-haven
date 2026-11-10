@@ -1,12 +1,12 @@
 # 03. Format spec (the contract)
 
-**Spec version:** 1 (draft). **Status:** proposed; becomes binding at the end of milestone M0.
+**Spec version:** 1. **Status:** binding as of 2026-11-10 (end of milestone M0). Changes follow §1.8: additive changes as notes in §10, breaking changes as a version bump with a migration. One M0 question is still open and could force a change: spike C (OneDrive mtime precision, dotfile sync, quarantine location). Raw files and Apple identifiers are milestone [R1](roadmap.md#r1-live-photos-and-raw); nothing in phase 1 depends on them.
 
 This document defines every persisted format Photo Haven reads or writes. It is language-neutral: a Rust, Go, or C++ implementation that follows it must interoperate with the Python prototype on the same library, and either one must be able to rebuild the database from the files the other wrote.
 
 Key words: **MUST**, **SHOULD**, **MAY** as in RFC 2119.
 
-Machine-checkable versions of the record layouts (JSON Schema) and the DDL live in `spec/` once M0 is done. If this doc and `spec/` disagree, `spec/` wins and this doc gets fixed.
+Machine-checkable versions live in `spec/`: the DDL in `spec/schema.sql` (identical to §9), a JSON Schema per file format in `spec/schemas/`, and one valid example per format in `spec/examples/`. `python spec/check_spec.py` checks them against each other and against this document. The schemas describe exactly what v1 writers emit (unknown fields are rejected there); readers still MUST ignore unknown fields (§1.1). If this doc and `spec/` disagree, `spec/` wins and this doc gets fixed.
 
 ---
 
@@ -16,7 +16,11 @@ Machine-checkable versions of the record layouts (JSON Schema) and the DDL live 
 
 - All text files are UTF-8 without BOM, with LF line endings.
 - **JSON Lines (JSONL):** one JSON object per line. The first line of every JSONL file is a `header` record. Every record has a `"record"` field naming its type.
-- **Canonical JSON:** writers MUST emit keys in sorted order, with separators `,` and `:` (no spaces) and non-ASCII characters unescaped. Two writers holding the same facts therefore produce byte-identical lines, which lets the scanner skip rewriting a cache file that hasn't changed.
+- **Canonical JSON:** writers MUST emit keys in sorted order (by Unicode code point), with separators `,` and `:` (no spaces) and non-ASCII characters unescaped. Two writers holding the same facts therefore produce byte-identical lines, which lets the scanner skip rewriting a cache file that hasn't changed. To make that hold:
+  - **Absent, not null.** An optional field with no value is left out, never written as `null`. `null` appears only in fields the spec marks as required-but-nullable (for example a cache record's `sha256` when `skip` is set). Readers treat a missing optional field and `null` the same.
+  - **Booleans that default to false** (for example `meta.damaged`) are written only when true.
+  - **Numbers:** integers without a decimal point; non-integers in the shortest decimal form that round-trips the IEEE 754 double, without an exponent (`-123.184013888889`, not `-1.23184013888889e2`).
+  - `spec/examples/` holds canonical lines, and `spec/check_spec.py` checks them.
 - **Readers MUST ignore unknown fields** and MUST preserve them when rewriting a record they don't own (they never rewrite one they don't own, see §4).
 - **Append-only logs** (§5, §6): if the last line fails to parse (a crash mid-write), readers MUST ignore it and log a warning. The next writer MUST start on a fresh line.
 
@@ -44,7 +48,7 @@ Photo capture time is stored as up to three fields, because most cameras record 
 
 | Field | Form | Meaning |
 |---|---|---|
-| `taken_local` | `YYYY-MM-DDTHH:MM:SS[.fff]` | Local wall-clock time as recorded. No zone. |
+| `taken_local` | `YYYY-MM-DDTHH:MM:SS[.f…]` | Local wall-clock time as recorded, with 1–6 fractional digits only if the file records sub-seconds (as recorded, not padded). No zone. |
 | `taken_offset` | `+HH:MM` / `-HH:MM` or null | UTC offset, if the file records one (iOS does; most older DSLRs don't). |
 | `taken_utc` | §1.2 format or null | Only if derivable (offset known, or source is a UTC field such as QuickTime `CreateDate`). |
 | `taken_source` | enum | `exif_original`, `exif_digitized`, `quicktime_creationdate`, `quicktime_createdate`, `xmp_datecreated`, `filename`, `mtime`. |
@@ -61,7 +65,8 @@ Year/month organization (phase 2) uses `taken_local`, because a photo taken at 1
 
 - Every library path is a pair **`(root_id, relpath)`**.
 - `relpath` uses `/` separators, has no leading or trailing `/`, contains no empty, `.`, or `..` components, and preserves the case and Unicode form the filesystem returned. The root folder itself has `relpath` `""`.
-- **`path_key`** = `casefold(NFC(relpath))`. It is used for uniqueness and lookups, never for display or filesystem calls. (Windows is case-insensitive; macOS-originated exports may arrive NFD.)
+- **`path_key`** = `casefold(NFC(relpath))`. It is used for lookups and for matching decisions to paths, never for display or filesystem calls. (Windows is case-insensitive; macOS-originated exports may arrive NFD.)
+- **`path_key` is not unique.** NTFS stores names as given, so `Café.jpg` in NFC and in NFD form can sit side by side in one folder as two files with the same `path_key` (seen in M0, [m0-results](spikes/m0-results.md#duplicate-case-corpus-make_dupe_corpuspy)). Uniqueness is on the raw `(root_id, relpath)`. Where a lookup by `path_key` finds more than one instance, each is flagged `path_key_collision`. A file-level decision still applies only to the instance whose `sha256` matches; a folder-level decision applies to every colliding folder, and the report lists them.
 - Quarantine paths are relative to the machine's quarantine root and follow the same rules.
 - Absolute local paths appear only in `machine.toml` and the local DB `roots.local_path`, never in synced files.
 
@@ -126,7 +131,7 @@ Created on first run. **Never copy it to another machine.** A cloned disk image 
 {"schema": 1, "machine_id": "…", "machine_short": "3f1c9a0b22de", "name": "tomahawk", "hostname": "TOMAHAWK", "last_seen": "…", "tool": "photohaven/0.1.0"}
 ```
 
-Each machine writes only its own file. Used for display names in reports and to detect `machine_short` clashes.
+Each machine writes only its own file. Used for display names in reports and to detect `machine_short` clashes. `machine retire` adds `"retired_at": "<timestamp>"` ([06 §5](06-multi-machine.md#5-scenarios)).
 
 ### 2.5 `library.toml` (project home, shared settings)
 
@@ -187,7 +192,7 @@ cache_placement = "in_folder"          # "in_folder" | "local_only" (see 06 §2)
 
 ### 3.2 File record
 
-One per file in the folder, sorted by `name` (by `casefold(NFC(name))`, ties broken by raw name).
+One per file in the folder that has either a `sha256` or a `skip` reason, sorted by `name` (by `casefold(NFC(name))`, ties broken by raw name, both compared by code point). A file still waiting for the `all` hash pass ([04](04-scanner.md#hash-scope)), or an `other` file that is never hashed, has no record yet: there are no facts to share about it, and the walk records it in the DB anyway.
 
 ```json
 {
@@ -202,22 +207,23 @@ One per file in the folder, sorted by `name` (by `casefold(NFC(name))`, ties bro
   "content_hash_impl": "exiftool/13.10/ImageDataHash",
   "meta": { "taken_local": "2015-07-04T13:45:12.123", "taken_offset": "-10:00", "...": "see 3.3" },
   "meta_impl": "exiftool/13.10;ph-meta/1",
-  "observed_at": "2026-11-10T03:15:22.000000Z",
-  "skip": null
+  "observed_at": "2026-11-10T03:15:22.000000Z"
 }
 ```
+
+(Shown pretty-printed; on disk each record is one canonical line. A skipped file has `"sha256": null`, a `skip` value, and no hash or metadata fields.)
 
 | Field | Notes |
 |---|---|
 | `name` | File name exactly as the filesystem returned it. |
 | `size`, `mtime_us`, `ctime_us` | From `stat` at the time `sha256` was computed. |
 | `media` | `image`, `raw`, `video`, `sidecar`, `other` (by extension, per `library.toml`). |
-| `sha256` | Full-file SHA-256. Null only if `skip` is set. |
-| `content_sha256` | §8.1. Null for non-image types ExifTool can't hash, or if not yet computed. |
+| `sha256` | Full-file SHA-256. Required; `null` exactly when `skip` is set. |
+| `content_sha256` | §8.1. Null for non-image types ExifTool can't hash, if not yet computed, or if the file is damaged (`meta.damaged`). |
 | `meta` | §3.3. Facts derived deterministically from the bytes. |
 | `meta_impl` | Versions of ExifTool and of Photo Haven's normalization rules. A reader MAY recompute metadata when `ph-meta` is older than its own. |
 | `observed_at` | When this machine established these facts. **Provenance, not a fact**: excluded from the "did facts change" comparison. |
-| `skip` | Null, or why the file wasn't hashed: `cloud_only`, `unreadable`, `locked`, `too_large`. |
+| `skip` | Absent, or why the file wasn't hashed: `cloud_only`, `unreadable`, `locked`, `too_large`. |
 
 **Refinement:** the handoff said two machines scanning the same folder "should write identical entries." They write identical *facts*; `observed_at`, `machine_id`, and `written_at` differ by design.
 
@@ -234,12 +240,16 @@ All fields optional; absent and `null` mean the same thing. Values are normalize
 | `gps_lat`, `gps_lon`, `gps_alt` | float (degrees, metres) | `Composite:GPSLatitude`, `Composite:GPSLongitude`, `Composite:GPSAltitude` |
 | `duration_ms` | int | `QuickTime:Duration` (video) |
 | `mime` | string | `File:MIMEType` |
-| `apple_content_id` | string (as recorded) | `MakerNotes:ContentIdentifier` (HEIC/JPEG), `Keys:ContentIdentifier` / `QuickTime:ContentIdentifier` (MOV) |
-| `apple_burst_id` | string | `MakerNotes:BurstUUID` |
+| `apple_content_id` | string (as recorded) | `MakerNotes:ContentIdentifier` (HEIC/JPEG), `Keys:ContentIdentifier` / `QuickTime:ContentIdentifier` (MOV). *Unconfirmed; see note.* |
+| `apple_burst_id` | string | `MakerNotes:BurstUUID`. *Unconfirmed; see note.* |
 | `xmp_original_image_hash` | hex | `XMP-et:OriginalImageHash` if present and `XMP-et:OriginalImageHashType` is `SHA256` |
 | `xmp_ingest_sha256` | hex | `XMP-phv:IngestFileSHA256` if present (§8.2) |
+| `damaged` | bool | True if ExifTool reported damage while reading the file (§8.1, "Damage"). Absent means false. |
+| `exiftool_messages` | array of strings | Every ExifTool `Error` and every `Warning` not tagged `[minor]`, in the order reported. Absent if none. |
 
-The exact tag list and fallbacks are pinned in code (`photohaven.scan.metadata`) and versioned by `ph-meta/<n>`.
+Tag sources are written as *family 0 group : tag* (`MakerNotes`, `QuickTime`, `EXIF`, `XMP`). ExifTool's `-G1` output names the family 1 group instead (for example `Apple:ContentIdentifier` for `MakerNotes:ContentIdentifier`), and the implementation maps between them. The exact tag list and fallbacks are pinned in code (`photohaven.scan.metadata`) and versioned by `ph-meta/<n>`.
+
+*Apple identifiers:* in M0 none of 189 OneDrive-uploaded iPhone 17 HEICs carried a ContentIdentifier, and no file carried a BurstUUID. The fields are reserved and the scanner records them when present, but nothing in phase 1 depends on them. Confirming the tags is roadmap milestone [R1](roadmap.md#r1-live-photos-and-raw).
 
 ---
 
@@ -300,7 +310,7 @@ Resolution (which decision is effective for an instance) is defined in [07 §5](
 
 ### 5.3 Decisions export file (from the report)
 
-The report's Export button produces `decisions-<report_id>.jsonl`: a header with `"kind":"decision-export"`, `report_id`, `scan_id`, and `generated_at`, then `decision` records **without** `id`, `machine_id`, or `seq`. `decisions import` assigns those and appends to the importing machine's log. Re-importing the same export is idempotent: a record whose `(report_id, target, action)` matches an existing record from the same report is skipped.
+The report's Export button produces `decisions-<report_id>.jsonl`: a header with `"kind":"decision-export"`, `library_id`, `report_id`, `scan_id`, and `generated_at`, then `decision` records **without** `id`, `machine_id`, or `seq`. `decisions import` refuses an export whose `library_id` is not this library's. `decisions import` assigns those and appends to the importing machine's log. Re-importing the same export is idempotent: a record whose `(report_id, target, action)` matches an existing record from the same report is skipped.
 
 ---
 
@@ -309,6 +319,14 @@ The report's Export button produces `decisions-<report_id>.jsonl`: a header with
 ### 6.1 Quarantine log (synced)
 
 **Location:** `<project home>/logs/quarantine.<machine_short>.jsonl`. Append only. Lets every machine know which instances left the library on purpose, and where they are.
+
+Header:
+
+```json
+{"record":"header","schema":1,"kind":"quarantine-log","library_id":"…","machine_id":"…","created_at":"…"}
+```
+
+Event record:
 
 ```json
 {
@@ -360,6 +378,15 @@ Dedupe never writes into originals. These fields are written into originals only
 - **Embedded as:** `XMP-et:OriginalImageHash` = hex value, `XMP-et:OriginalImageHashType` = `SHA256`. These are ExifTool's own XMP tags, created for exactly this purpose, so no custom namespace is needed for it.
 - **Implementation tag:** `content_hash_impl` = `exiftool/<version>/ImageDataHash`. If a future ExifTool changes what it hashes for some format, `content_hash_impl` tells us which values are comparable. A reimplementation that computes the same bytes-in-scope MUST report its own impl string and MUST pass the conformance fixtures (`spec/fixtures/content-hash/`).
 - **Limits:** re-encoding (export at a different quality, HEIC→JPEG conversion) changes the content hash. Those are near-duplicates, found by perceptual methods in phase 4.
+- **Equal content is not the same photo.** Two different exposures can have identical image data (M0 found two blank frames shot four days apart). Content equivalence is reported, never acted on by itself.
+
+**Damage.** ExifTool still returns an `ImageDataHash` for most damaged files: in M0, 93 of 93 truncated stills and 7 of 11 truncated videos got a (different) hash. It reports the damage only as a warning. So:
+
+- The implementation MUST collect *every* ExifTool `Warning` and `Error` for the file. With JSON output, a repeated tag is kept only once unless copies are numbered, so the request MUST use `-a` together with group family 4 (for example `-a -G1:4`, which yields `ExifTool:Warning`, `ExifTool:Copy1:Warning`, …). M0 found a `[minor]` warning hiding `JPEG format error` when only the first warning was read.
+- A file is **damaged** if ExifTool reports any `Error`, or any `Warning` (not tagged `[minor]`) that matches the damage patterns, case-insensitive: `format error`, `error reading`, `truncated`, `corrupt`, `unexpected end`, `bad … header`/`bad … data`, `missing … data`. The pattern list is versioned with `ph-meta`.
+- Other warnings not tagged `[minor]` (for example `IPTCDigest is not current`) are recorded in `meta.exiftool_messages` but don't make the file damaged.
+- For a damaged file, `content_sha256` and `content_hash_impl` MUST be null, `meta.damaged` is true, and the instance gets a `damaged` flag. Its `sha256` is unaffected: exact-duplicate grouping still works.
+- Damage detection is best effort. A single flipped byte in JPEG entropy data raises no warning at all. Only SHA-256 and the byte-for-byte compare at purge are guarantees.
 
 **Refinement:** the handoff said "hash of image data excluding metadata" without choosing how. Decoded-pixel hashing was rejected because JPEG and HEIC decoders don't produce bit-identical output across libraries, which would break the language-neutral contract ([D-05](decisions.md#d-05-content-hash--exiftool-imagedatahash-sha-256)).
 
@@ -446,8 +473,9 @@ CREATE TABLE folders (
   source        TEXT,                  -- camera_roll | dslr_import | backup | other | <root name>
   present       INTEGER NOT NULL DEFAULT 1,
   last_scan_id  INTEGER REFERENCES scans(scan_id),
-  UNIQUE (root_id, path_key)
+  UNIQUE (root_id, relpath)            -- raw path; path_key can collide (§1.6)
 );
+CREATE INDEX folders_path_key ON folders(root_id, path_key);
 
 -- Every level of the folder path, so "anything under a folder named Hawaii" is one indexed query.
 CREATE TABLE folder_levels (
@@ -484,6 +512,8 @@ CREATE TABLE contents (
   apple_burst_id     TEXT,
   xmp_original_image_hash TEXT,
   xmp_ingest_sha256  TEXT,
+  damaged            INTEGER NOT NULL DEFAULT 0,   -- §8.1 "Damage"; content_sha256 is NULL when 1
+  exiftool_messages  TEXT,                         -- JSON array of strings, NULL if none
   meta_impl          TEXT,
   first_seen         TEXT NOT NULL
 );
@@ -513,8 +543,9 @@ CREATE TABLE files (
   first_seen    TEXT NOT NULL,
   last_seen     TEXT NOT NULL,
   last_scan_id  INTEGER REFERENCES scans(scan_id),
-  UNIQUE (root_id, path_key)
+  UNIQUE (root_id, relpath)            -- raw path; path_key can collide (§1.6)
 );
+CREATE INDEX files_path_key ON files(root_id, path_key);
 CREATE INDEX files_sha256 ON files(sha256);
 CREATE INDEX files_size ON files(size);
 CREATE INDEX files_folder ON files(folder_id);
@@ -552,7 +583,7 @@ CREATE INDEX link_members_file ON link_members(file_id);
 -- Flags for orphans and anomalies (orphan Live Photo video, unreadable file, ...).
 CREATE TABLE flags (
   file_id  INTEGER NOT NULL REFERENCES files(file_id),
-  flag     TEXT NOT NULL,              -- orphan_live_video | orphan_live_still | unreadable | zero_bytes | ...
+  flag     TEXT NOT NULL,              -- damaged | exiftool_error | path_key_collision | cache_conflict | unreadable | zero_bytes | orphan_live_video | orphan_live_still | ...
   detail   TEXT,
   scan_id  INTEGER REFERENCES scans(scan_id),
   PRIMARY KEY (file_id, flag)
@@ -648,3 +679,4 @@ HAVING COUNT(*) > 1;
 | Spec version | Date | Change |
 |---|---|---|
 | 1 (draft) | 2026-11-09 | Initial draft from the planning handoff. |
+| 1 | 2026-11-10 | Binding. From the M0 spikes: damage rules and `meta.damaged` / `meta.exiftool_messages` (§3.3, §8.1; `contents.damaged`, `contents.exiftool_messages`); `path_key` is not unique, so uniqueness moves to raw `(root_id, relpath)` (§1.6, §9); family-0 tag groups and unconfirmed Apple IDs (§3.3). Gaps closed while writing `spec/`: canonical rules for nulls, booleans and numbers (§1.1); cache records only for hashed or skipped files (§3.2); quarantine log header (§6.1); `library_id` in the export header (§5.3); `retired_at` in the machine registry (§2.4); fractional digits in `taken_local` (§1.4). |

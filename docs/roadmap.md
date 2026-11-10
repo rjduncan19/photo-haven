@@ -6,7 +6,7 @@ Phase 1 (dedupe) is broken into milestones, each ending in something runnable an
 
 Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, and settle the assumptions it rests on.
 
-- [ ] `spec/schema.sql` (DDL from 03 §9), `spec/schemas/*.schema.json` for every record type, `spec/examples/` with one valid file per format.
+- [x] `spec/schema.sql` (DDL from 03 §9), `spec/schemas/*.schema.json` for every record type, `spec/examples/` with one valid file per format, and `spec/check_spec.py` to keep them consistent with each other and with 03.
 - [x] `spec/exiftool/photohaven.config` defining the `phv` namespace (validated by spike A).
 - [x] Spike scripts and runbook: [spikes/m0](../spikes/m0/README.md). Results go in [docs/spikes/m0-results.md](spikes/m0-results.md).
 - [x] Build the small test corpus (`make_corpus.py`). All M0–M4 work uses test data; the real library waits for M5.
@@ -14,7 +14,9 @@ Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, a
 - [x] **Spike: content hash** ([D-05](decisions.md#d-05-content-hash--exiftool-imagedatahash-sha-256)). On copies of real JPEG, HEIC, PNG, and MOV/MP4: confirm `ImageDataHash` (SHA-256) is unchanged after writing XMP/EXIF; measure throughput on the Windows machine. Raw moved to [R1](#r1-live-photos-and-raw).
 - [ ] **Spike: OneDrive behavior.** On a scratch folder inside OneDrive, on two machines: are mtimes preserved exactly across machines? Is a move *within* OneDrive synced as a true move (decides [D-10](decisions.md#d-10-quarantine-location))? What does the client do when many files are moved out? Are hidden dotfiles synced? Which placeholder attributes appear on a dehydrated file?
 - Spike: Apple metadata: moved to [R1](#r1-live-photos-and-raw).
-- [ ] Answer the blocking [open questions](open-questions.md) (paths, ExifTool location).
+- [x] Answer the blocking [open questions](open-questions.md): ExifTool answered (Q-3); real paths deferred to M5 by choice (Q-1); Q-2, Q-4, Q-5 wait on spike C.
+
+**Status (2026-11-10):** spec version 1 is binding. Only spike C (OneDrive) is open; it decides the quarantine location before M3 and may adjust `mtime_tolerance_us`, so M1 can start now.
 
 **Done when:** the spec is marked version 1 (binding), the spikes are written up in `docs/spikes/`, and any spec changes they force are made. Live Photo, burst and raw questions don't block M0; they belong to R1.
 

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/machine.schema.json",
+  "title": "machine.json (local state, never synced). 03 2.3",
+  "type": "object",
+  "required": ["schema", "machine_id", "name", "created_at"],
+  "properties": {
+    "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+    "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+    "name": {"type": "string", "minLength": 1},
+    "created_at": {"$ref": "common.schema.json#/$defs/timestamp"}
+  },
+  "additionalProperties": false
+}

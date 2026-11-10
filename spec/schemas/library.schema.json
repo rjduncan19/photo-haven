@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/library.schema.json",
+  "title": "library.json (project home). 03 2.1",
+  "type": "object",
+  "required": ["schema", "library_id", "name", "created_at", "apply_machine_id", "roots"],
+  "properties": {
+    "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+    "library_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+    "name": {"type": "string", "minLength": 1},
+    "created_at": {"$ref": "common.schema.json#/$defs/timestamp"},
+    "apply_machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["root_id", "name", "kind", "intake_folders", "protected_folders"],
+        "properties": {
+          "root_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+          "name": {"type": "string", "minLength": 1},
+          "kind": {"$ref": "common.schema.json#/$defs/root_kind"},
+          "intake_folders": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/relpath"}, "uniqueItems": true},
+          "protected_folders": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/relpath"}, "uniqueItems": true}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

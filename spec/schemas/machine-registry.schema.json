@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/machine-registry.schema.json",
+  "title": "machines/<machine_id>.json (project home). 03 2.4",
+  "type": "object",
+  "required": ["schema", "machine_id", "machine_short", "name", "hostname", "last_seen", "tool"],
+  "properties": {
+    "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+    "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+    "machine_short": {"$ref": "common.schema.json#/$defs/machine_short"},
+    "name": {"type": "string", "minLength": 1},
+    "hostname": {"type": "string", "minLength": 1},
+    "last_seen": {"$ref": "common.schema.json#/$defs/timestamp"},
+    "tool": {"$ref": "common.schema.json#/$defs/tool"},
+    "retired_at": {"$ref": "common.schema.json#/$defs/timestamp"}
+  },
+  "additionalProperties": false
+}

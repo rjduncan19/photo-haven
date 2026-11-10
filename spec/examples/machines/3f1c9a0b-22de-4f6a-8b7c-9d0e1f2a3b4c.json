@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "machine_id": "3f1c9a0b-22de-4f6a-8b7c-9d0e1f2a3b4c",
+  "machine_short": "3f1c9a0b22de",
+  "name": "tomahawk",
+  "hostname": "TOMAHAWK",
+  "last_seen": "2026-11-12T05:00:03.000000Z",
+  "tool": "photohaven/0.1.0"
+}

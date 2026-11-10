@@ -1,0 +1,18 @@
+schema = 1
+
+[scan]
+mtime_tolerance_us = 1_000_000        # see 06 §3
+hash_scope = "all"                    # "candidates" | "all"
+ignore_names = ["desktop.ini", "Thumbs.db", ".DS_Store", "*.tmp", "~$*"]
+
+[media]                               # lowercase extensions, no dot
+image = ["jpg", "jpeg", "heic", "heif", "png", "gif", "tif", "tiff", "webp", "bmp"]
+raw = ["cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw", "x3f"]
+video = ["mov", "mp4", "m4v", "avi", "3gp", "mts", "m2ts", "mpg"]
+sidecar = ["xmp", "aae", "thm"]
+
+[folders]
+generic_names = ["Camera Roll", "Backup", "Backups", "Imports", "Import", "Pictures", "Photos", "DCIM",
+                 "New folder", "Untitled", "Export", "Exports", "Desktop", "Saved Pictures", "Screenshots",
+                 "Copy", "Misc", "Unsorted", "OneDrive"]
+generic_patterns = ['^\d{3}[A-Z_]{5}$', '^\d{4}$', '^\d{2}$', '^(19|20)\d{2}[-_ ]?\d{2}$']   # 100APPLE, 2015, 07, 2015-07

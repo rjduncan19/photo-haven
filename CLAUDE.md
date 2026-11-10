@@ -15,7 +15,7 @@ These protect irreplaceable family photos. Any code that could violate them is a
 
 ## The contract
 
-`docs/03-format-spec.md` is authoritative for every on-disk format: SQLite schema, JSONL cache/decision/quarantine records, XMP fields, timestamp/path/hash conventions. If code and spec disagree, fix the code or propose a spec change with a schema version bump. Do not invent fields ad hoc. JSON Schemas for records live in `spec/schemas/` (to be written in milestone M0).
+`docs/03-format-spec.md` is authoritative for every on-disk format: SQLite schema, JSONL cache/decision/quarantine records, XMP fields, timestamp/path/hash conventions. If code and spec disagree, fix the code or propose a spec change with a schema version bump. Do not invent fields ad hoc. `spec/` holds the machine-checkable contract: `schema.sql` (identical to 03 §9), JSON Schemas in `spec/schemas/`, one example per format in `spec/examples/`. After any change to 03 or `spec/`, run `python spec/check_spec.py` (needs the dev-only `jsonschema>=4.18`; a `.venv` works).
 
 ## Conventions (summary; spec has the details)
 

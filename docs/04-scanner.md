@@ -65,7 +65,7 @@ So the scanner works in two passes:
 
 The report says which pass has completed. A "fully redundant" verdict only needs pass 1 for that folder's files, since a unique-size file is by definition not redundant.
 
-An optional partial-hash prefilter (first and last 64 KiB) for same-size groups is not worth it here: same-size-but-different JPEG/HEIC files are rare, so almost every same-size group really is duplicates.
+An optional partial-hash prefilter (first and last 64 KiB) for same-size groups is not worth it here: in an untouched library, same-size-but-different JPEG/HEIC files are rare, so almost every same-size group really is duplicates. Size is only a way to choose what to hash first, never evidence of equality: metadata edits and single-byte damage can land on the same size (the M0 duplicate corpus has 5 such sizes in 57 files).
 
 ### Time estimate
 
@@ -76,11 +76,11 @@ An optional partial-hash prefilter (first and last 64 KiB) for same-size groups 
 **Once per unique SHA-256, not once per file.** Metadata and the content hash are functions of the bytes, so all instances of a duplicate group share them. ExifTool runs on one representative instance per new `sha256`. On a library heavy with duplicates, this saves a lot of reading ([D-16](decisions.md#d-16-content-hash-and-metadata-computed-once-per-unique-sha-256)).
 
 - Long-lived processes: `exiftool -stay_open True -@ -`, each request ending with `-execute<N>` so responses can be matched up. Pool size `exiftool_processes` (default 2).
-- Per request: `-json -n -G1 -struct -api ImageHashType=SHA256 -api RequestTags=ImageDataHash` plus an explicit tag list ([03 §3.3](03-format-spec.md#33-meta-object)). Batch about 50 files per request. Pass paths via the argument file, UTF-8 (`-charset filename=utf8`), and use long-path forms on Windows.
+- Per request: `-json -n -a -G1:4 -struct -api ImageHashType=SHA256 -api RequestTags=ImageDataHash -api WindowsLongPath=1` plus an explicit tag list including `-Warning -Error` ([03 §3.3](03-format-spec.md#33-meta-object)). `-a -G1:4` is required so that every warning comes back (`ExifTool:Warning`, `ExifTool:Copy1:Warning`, …); JSON output otherwise keeps only the first ([03 §8.1](03-format-spec.md#81-content-hash), "Damage"). Batch about 50 files per request. Pass paths via the argument file, UTF-8 (`-charset filename=utf8`). On Windows pass plain absolute paths and rely on `WindowsLongPath` (ExifTool 13.61 opened a 330-character path in M0); Python's own file I/O uses the `\\?\` form for long paths.
 - Normalize in Python (`photohaven.scan.metadata`): parse dates into §1.4 fields, pick the first available source in priority order, coerce numbers, drop empty strings. `ph-meta/<n>` is bumped whenever these rules change; a later scan MAY re-derive metadata for contents with an older `ph-meta`.
 - **Filename date fallback** patterns: `IMG_20150704_134512`, `20150704_134512`, `2015-07-04 13.45.12`, `PXL_20150704_134512123`, `Screenshot_2015-07-04-13-45-12`. Used only when no embedded date exists; `taken_source = "filename"`.
 - **mtime fallback:** last resort, `taken_source = "mtime"`, flagged low confidence in reports. Copying often resets mtime, so this is the least trustworthy source.
-- ExifTool errors or warnings for a file are stored as a `flags` row (`exiftool_error`) and don't stop the scan.
+- ExifTool messages are classified per [03 §8.1](03-format-spec.md#81-content-hash): a damaged file gets `meta.damaged = true`, a null `content_sha256`, and a `damaged` flag; other non-minor warnings go to `meta.exiftool_messages`; an ExifTool failure that yields no output at all is an `exiftool_error` flag. None of these stop the scan.
 - `content_sha256` is null for types where `ImageDataHash` is not produced. That's fine; it's an enhancement, not an identity.
 
 ## Stage 5: persist
@@ -107,4 +107,4 @@ After the walk, the link pass rebuilds duplicate statistics, folder overlap, raw
 
 ## Error handling
 
-No single file can fail a scan. Errors are classified (`unreadable`, `locked`, `changing`, `exiftool_error`, `path_too_long`, `permission`), stored in `flags`, counted in `scans.errors`, and listed in the report. A root that can't be opened, or whose marker doesn't match, fails that root and moves on to the next.
+No single file can fail a scan. Errors are classified (`unreadable`, `locked`, `changing`, `exiftool_error`, `damaged`, `path_too_long`, `permission`), stored in `flags`, counted in `scans.errors`, and listed in the report. A root that can't be opened, or whose marker doesn't match, fails that root and moves on to the next.
