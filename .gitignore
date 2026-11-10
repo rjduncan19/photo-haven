@@ -22,6 +22,11 @@ reports/
 quarantine/
 local-config/
 machine.toml
+# ...except the spec's example files, which are synthetic
+!spec/examples/.photohaven-cache.*.jsonl
+!spec/examples/.photohaven-root.json
+!spec/examples/machine.toml
+!spec/examples/quarantine/
 
 # Never commit photos (fixtures are generated at test time)
 *.jpg

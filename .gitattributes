@@ -1,0 +1,5 @@
+# The spec requires UTF-8 text with LF line endings (docs/03 1.1); keep it that way on every checkout.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
