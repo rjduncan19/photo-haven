@@ -351,7 +351,7 @@ Report output is a disposable, regenerable artifact and **not** part of the cont
 
 ## 8. Embedded metadata (XMP)
 
-Phases 1–2 never write into originals ([D-06](decisions.md#d-06-originals-are-not-modified-metadata-goes-to-the-db-and-to-curated-copies)). These fields are written only into **curated copies** at export time (phase 2+). Readers recognize them in any file.
+Dedupe never writes into originals. These fields are written into originals only by the gated **rating step**, and into **curated copies** at export (phase 2+) ([D-06](decisions.md#d-06-originals-are-not-modified-metadata-goes-to-the-db-and-to-curated-copies), [09](09-later-phases.md#rating-step-writing-into-originals)). Readers recognize them in any file.
 
 ### 8.1 Content hash
 

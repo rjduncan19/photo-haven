@@ -40,9 +40,17 @@ Spike checks: the hash is stable when XMP/EXIF fields are added or changed (JPEG
 
 ### D-06: Originals are not modified; metadata goes to the DB and to curated copies
 
-*Source: handoff, tightened in design. Status: proposed.*
+*Source: handoff; revised 2026-11-09 after Rick's review. Status: proposed.*
 
-The handoff said "dedupe before writing any metadata" and "write ratings into curated copies at export so originals don't change." This design goes one step further: in phases 1–2, Photo Haven writes nothing into original photo files at all, including the content hash. The only files it writes inside library roots are its cache files and root marker. Provenance (`OriginalImageHash`, `IngestFileSHA256`) is embedded in curated copies at export. Benefit: an original's SHA-256 never changes, so duplicate detection and verification stay simple forever.
+Dedupe never writes into photo files. The only files Photo Haven writes inside library roots during dedupe are its cache files and the root marker.
+
+**Revision:** Rick is OK with writing **ratings into originals**, as a deliberate, separate **rating step** ([09](09-later-phases.md#rating-step-writing-into-originals)), because a write changes the file's SHA-256 and can upset dedupe. So:
+
+- A content is rated into its original only once it is **settled**: one present instance, not the keeper of any unpurged quarantine item, no pending dedupe decision. Work proceeds incrementally, folder by folder or year by year.
+- Each original is written **once per flush**, in a single ExifTool write that carries the rating *and* the two provenance hashes: `XMP-et:OriginalImageHash` (content hash; stays valid through later edits) and `XMP-phv:IngestFileSHA256` (the file's SHA-256 before its first write). The current file hash is never embedded (a file can't contain its own hash).
+- The ingest hash lets a later scan recognize a rated original as "the same file" as an unrated copy that turns up elsewhere (for example from Karen's library), even though their SHA-256 values now differ.
+
+The DB remains the source of truth for ratings; curated copies (phase 2) get them as well.
 
 ### D-07: The SQLite database lives on local disk, never in a synced folder
 
@@ -62,11 +70,23 @@ One hidden `.photohaven-cache.<machine_short>.jsonl` per machine per folder, hol
 
 Decision and quarantine logs live in `<project home>/logs/`, one file per machine, so every machine sees every decision without OneDrive ever merging edits. Latest wins per target, ordered by `(at, machine_id, seq)`. The project home is outside every library root.
 
-### D-10: Quarantine on local disk, outside OneDrive
+### D-10: Quarantine location
 
-*Source: handoff. Status: accepted.*
+*Source: handoff; reopened 2026-11-09. Status: **open** pending spike C4.*
 
-A quarantine inside OneDrive would sync back up and free nothing. Prefer a different physical drive. Batches are self-describing via manifests ([08 §10](08-apply-quarantine-verify.md#10-quarantine-location)).
+The handoff put the quarantine on local disk outside OneDrive, because a quarantine inside OneDrive frees no cloud space until purge. Rick prefers a quarantine **inside OneDrive** (outside every root), which works only if the OneDrive client syncs a local move within the same OneDrive as a server-side move rather than a delete plus re-upload. Reports about cut-and-paste between *separately synced SharePoint libraries* say the client doesn't treat that as a move. Moves within one OneDrive are untested, so spike C4 measures it.
+
+| | Inside OneDrive (`quarantine_mode = "onedrive"`) | Local, outside OneDrive (`"local"`) |
+|---|---|---|
+| Move cost | Instant rename on the same volume, if OneDrive syncs it as a move | Cross-volume copy + verify + delete, unless on the same volume |
+| Cloud space | Freed only at purge | Freed as OneDrive processes the deletions (minus its recycle bin) |
+| Visible from other machines | Yes, so any machine can verify, restore, or purge | Only on the machine that holds it |
+| Placeholders | Can be quarantined without downloading | Must be downloaded first, or skipped |
+| Mass-deletion prompts | None (it's a move) | Possible |
+| Stays in OneDrive Photos / People views | Probably, until purged | No |
+| Single apply machine (D-17) | Still useful against the sync-lag race, but the race can no longer strand a quarantine on one machine's disk | Required |
+
+Both modes share the batch layout and manifests ([08 §10](08-apply-quarantine-verify.md#10-quarantine-location)). Decide after spike C4.
 
 ### D-11: A library has multiple roots; paths are (root_id, relpath)
 

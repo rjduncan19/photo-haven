@@ -25,7 +25,7 @@ For each duplicate group (one `sha256`, ≥ 2 present instances):
 
 **Cloud-only keepers** are allowed (they exist in OneDrive). Purge will hydrate that one keeper file to byte-compare it, and says so.
 
-**Cloud-only instances in R** are skipped (moving a placeholder out of OneDrive would force a download first) and listed in the plan as skipped.
+**Cloud-only instances in R** are skipped in `local` quarantine mode (moving a placeholder out of OneDrive would force a download first) and listed in the plan as skipped. In `onedrive` mode they can be moved as-is.
 
 ## 3. Plan and dry run
 
@@ -128,6 +128,8 @@ When a batch is fully purged, its manifest is kept (it's tiny) as a permanent re
 
 ## 9. OneDrive considerations
 
+These apply to `local` quarantine mode. In `onedrive` mode, apply is a set of moves within OneDrive, and the deletions (with their recycle-bin and quota effects) happen only at purge.
+
 - **Moving a file out of the OneDrive folder deletes it from OneDrive** (and from every synced device). OneDrive keeps it in its recycle bin for a limited time (30 days for personal accounts). That's a useful second safety net, but Photo Haven's quarantine is the primary one.
 - **Mass deletions** may make the OneDrive client show a notice or confirmation about many files being removed. Read it carefully. The expected outcome is that the deletion stands, because the files are safe in quarantine.
 - Work in rounds (`--batch-limit`, or one folder group at a time) so OneDrive's sync queue stays manageable and each round can be verified before the next.
@@ -135,7 +137,10 @@ When a batch is fully purged, its manifest is kept (it's tiny) as a permanent re
 
 ## 10. Quarantine location
 
-- MUST be outside the OneDrive folder; a quarantine inside OneDrive would sync right back up and free nothing.
-- MUST be outside every library root and the project home. `init` and `doctor` check this.
+**Open decision** ([D-10](decisions.md#d-10-quarantine-location)): inside OneDrive (outside every root) or on local disk outside OneDrive. Spike C4 decides whether OneDrive syncs an in-OneDrive move as a true move. Either way:
+
+- MUST be outside every library root and the project home, so scans never see quarantined files as library files. `init` and `doctor` check this.
+- In `onedrive` mode, the quarantine root is a top-level OneDrive folder such as `<OneDrive>\PhotoHaven-quarantine\`. Moves are same-volume renames (§4), cloud-only placeholders can be quarantined without hydrating, and purge deletes go through OneDrive's recycle bin, which is one more safety net.
+- In `local` mode, the following rules apply.
 - SHOULD be on a different physical drive from the library if one is available, so a single drive failure can't take both. On the same volume, moves are instant renames and need no extra space; across volumes, the plan checks free space first.
 - Recorded per machine in `machine.toml` and per batch in the manifest, so a batch remains findable even if the setting changes later.

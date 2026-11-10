@@ -7,9 +7,11 @@ Phase 1 (dedupe) is broken into milestones, each ending in something runnable an
 Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, and settle the assumptions it rests on.
 
 - [ ] `spec/schema.sql` (DDL from 03 §9), `spec/schemas/*.schema.json` for every record type, `spec/examples/` with one valid file per format.
-- [ ] `spec/exiftool/photohaven.config` defining the `phv` namespace.
+- [x] `spec/exiftool/photohaven.config` defining the `phv` namespace (validated by spike A).
+- [x] Spike scripts and runbook: [spikes/m0](../spikes/m0/README.md). Results go in [docs/spikes/m0-results.md](spikes/m0-results.md).
+- [ ] Build the small test corpus (`make_corpus.py`). All M0–M4 work uses test data; the real library waits for M5.
 - [ ] **Spike: content hash** ([D-05](decisions.md#d-05-content-hash--exiftool-imagedatahash-sha-256)). On copies of real JPEG, HEIC, one raw, and one MOV: confirm `ImageDataHash` (SHA-256) is unchanged after writing XMP/EXIF; measure throughput on the Windows machine.
-- [ ] **Spike: OneDrive behavior.** On a scratch folder inside OneDrive, on two machines: are mtimes preserved exactly across machines? What does the client do when ~1,000 files are moved out at once? Are hidden dotfiles synced? Which placeholder attributes appear on a dehydrated file?
+- [ ] **Spike: OneDrive behavior.** On a scratch folder inside OneDrive, on two machines: are mtimes preserved exactly across machines? Is a move *within* OneDrive synced as a true move (decides [D-10](decisions.md#d-10-quarantine-location))? What does the client do when many files are moved out? Are hidden dotfiles synced? Which placeholder attributes appear on a dehydrated file?
 - [ ] **Spike: Apple metadata.** Confirm the exact ExifTool tag names for ContentIdentifier (HEIC and MOV) and BurstUUID on a few real iPhone files.
 - [ ] Answer the blocking [open questions](open-questions.md) (paths, ExifTool location).
 

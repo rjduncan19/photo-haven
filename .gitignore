@@ -43,3 +43,6 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# Spike output (contains corpus file names)
+spike-results/
