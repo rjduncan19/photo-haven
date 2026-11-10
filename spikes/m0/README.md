@@ -8,6 +8,7 @@ Throwaway scripts that settle the assumptions the format spec rests on, using a 
 | `make_corpus.py` | Build the small test set (a copied sample, or synthetic JPEGs) | 10 §7 |
 | `spike_content_hash.py` | **A.** Is ExifTool `ImageDataHash` unchanged by rating/XMP/EXIF writes, per format? Can our XMP fields be written and read back? | D-05, D-06 |
 | `spike_apple_tags.py` | **B.** Exact tag names for Live Photo and burst IDs; how well does ID pairing agree with name pairing? | 03 §3.3, 05 §4 |
+| `make_dupe_corpus.py` | Planted duplicate cases with known answers (`expected.json`), self-verified; rescan mutations. The acceptance set for M1/M2 | 04, 05, 10 |
 | `onedrive_probe.py` | **C.** Are mtimes identical across machines? Do hidden dotfiles sync? What do placeholders look like? Is a move inside OneDrive a real move, or delete + re-upload? | 06 §3, D-08, D-10 |
 
 Results go to `spike-results/<timestamp>-<name>/` under the current folder (git-ignored). They contain file names from your corpus, but no photos.
@@ -43,6 +44,24 @@ Per file, on a scratch copy: hash, write a rating plus `XMP-et:OriginalImageHash
 - `WFAIL` → ExifTool couldn't write that format (expected for some raws). Those types need sidecar `.xmp` files for ratings.
 - `same-size` above 0 → a metadata write left the file size unchanged, so the cache can't treat "same size" as "same file" after we start writing ratings.
 - `idh MB/s` → content-hash throughput, for the full-scan time estimate.
+
+## 2b. Duplicate-case corpus (for M1/M2)
+
+```
+py make_dupe_corpus.py build  --source D:\PH-test\corpus --dest D:\PH-test\dupecases
+py make_dupe_corpus.py verify --dest D:\PH-test\dupecases
+```
+
+Plants about 57 files under `dupecases\library`, built from 7 base photos (camera JPEGs, an iPhone JPEG, HEICs, a MOV, a PNG). There are exact copies (renamed, moved, `- Copy`, ` (1)`, extension case and spelling, new mtime, fresh times, hidden, read-only, NFC/NFD names, a path over 260 characters, fully and partly redundant backup folders, a photo whose only copies are in backups). There are also content-equivalent edits (rating, rating with mtime kept, keywords, date shift, orientation, GPS, stripped metadata) and different or damaged files (one byte flipped at the same size, a name collision, truncated, zero bytes, a stray `.txt`). `expected.json` holds the answer for every file. `verify` recomputes SHA-256, ImageDataHash and damage, and checks them against it.
+
+For rescan tests, after the product has scanned the library once:
+
+```
+py make_dupe_corpus.py mutate --dest D:\PH-test\dupecases
+py make_dupe_corpus.py verify --dest D:\PH-test\dupecases
+```
+
+This moves, renames, touches, rates in place, silently corrupts (the size and mtime stay the same), deletes and adds files. It also records an `expect_rescan` hint for each changed file. Mutate runs only once; to start over, build into a new folder (the read-only file needs its attribute cleared before you delete the old one).
 
 ## 3. Spike B: Apple tags
 
