@@ -93,10 +93,26 @@ Already clear for the spec:
 
 ## C. OneDrive
 
-*Skipped this round.* All questions are still open, including the quarantine location (D-10).
+Run 2026-11-11 on tomahawk (personal OneDrive, M365; Windows 11; one internal drive, C:). Probe: 200 files of 1 MB random bytes plus a hidden `.photohaven-cache.probe.jsonl`, in `OneDrive\PH-probe-area`. The second-machine steps (C2, C3) are still to do.
+
+| Step | Result |
+|---|---|
+| C0. Idle upload | 1.7–2.4 KB/s. Negligible next to the moves measured. |
+| C1. Create and sync | 200 MB uploaded in about 90 s (211 MB on the wire). Locally the dotfile stays hidden; no placeholders (the library is kept on the device). |
+| Dotfiles | **Synced.** `.photohaven-cache.probe.jsonl` shows on OneDrive on the web. So in-folder cache files reach other machines (06 §2). Whether they stay hidden there is C2. |
+| C4. Move inside OneDrive (`PH-probe-area` → `PH-quarantine-test\q1`) | **A true server-side move.** 1.2 MB uploaded in 4 minutes against about 3.6 MB of background traffic over the same time. On the web, nothing in the Recycle bin, and a moved file still has a single version 1.0 (checked by Rick). Moving back was the same: 1.2 MB. |
+| C5. Move out of OneDrive (to `C:\PH-test\quarantine-out`) | Nothing uploaded, as expected for a delete. Moving the files back in re-uploaded **209 MB**, a full re-upload. Still to note: any OneDrive notice about the deletion, and whether the 200 files are now in the web Recycle bin. |
+
+**What this settles:**
+
+- **Q-2 / D-10 (quarantine location): inside OneDrive works the way the design hoped.** An apply that moves duplicates to a quarantine folder inside OneDrive (outside every root) is a set of server-side moves: no upload, no recycle-bin churn, and the quarantine is visible to every machine. Cloud space is freed only at purge, when the deletes go through OneDrive's recycle bin. Recommendation: `onedrive` quarantine mode, quarantine at `<OneDrive>\PhotoHaven-quarantine\`. Rick decides.
+- **On this machine, both modes are same-volume renames.** tomahawk has a single drive, so a local quarantine outside OneDrive (C:\PhotoHavenQuarantine) would also be an instant rename. The difference is only what OneDrive does: a delete (cloud space freed, files in the recycle bin, a full re-upload if restored), or a move.
+- **Restore cost.** With a quarantine outside OneDrive, every restore is a full re-upload (C5's move back). Inside OneDrive, a restore is another server-side move.
+
+**Still open:** C2/C3 on txuleta (cross-machine mtime precision, Q-4; dotfile still hidden there; placeholder attributes after *Free up space*), and whether moved files arrive on txuleta without a download. The probe is left in `OneDrive\PH-probe-area\PhotoHaven-probe-b2a78bc4` for that; `onedrive_probe.py cleanup` removes it afterwards.
 
 ## Follow-ups
 
 1. Spec and doc changes from these results, made as part of the M0 spec pass: docs/04 stage 4 (`-a -G4`, warning classes, size is not equality), 03 §1.6 (NFC/NFD collisions in `path_key`), 05 §2 (capture time for any future `remove_equivalent`).
-2. Spike C (OneDrive), still needed to decide the quarantine location (D-10) before M3.
+2. Spike C (OneDrive): C0, C1, C4, C5 done on tomahawk (above). C2/C3 need the second machine.
 3. Raw, Live Photo and burst checks: [R1](../roadmap.md#r1-live-photos-and-raw).

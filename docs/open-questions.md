@@ -7,7 +7,7 @@ Questions that still need an answer, roughly in the order they block work. Move 
 | # | Question | Why it matters | Default if unanswered |
 |---|---|---|---|
 | Q-1 | Local path of the main photos folder on each machine (tomahawk, txuleta). | Root mapping and the root marker. | **Deferred by Rick:** all early work runs on a small test corpus ([spikes/m0](../spikes/m0/README.md)); the real paths come later. |
-| Q-2 | Quarantine location: inside OneDrive (Rick's preference) or local outside it? | [D-10](decisions.md#d-10-quarantine-location) | Decide from spike C4 (is an in-OneDrive move a true move?). |
+| Q-2 | Quarantine location: inside OneDrive (Rick's preference) or local outside it? | [D-10](decisions.md#d-10-quarantine-location) | **Spike C4 (2026-11-11): a move inside OneDrive is a true server-side move** (no upload, nothing in the recycle bin, version history kept). Recommendation: inside OneDrive. Awaiting Rick's decision. |
 | Q-3 | ~~Where is ExifTool installed, and which version?~~ **Answered 2026-11-10:** ExifTool 13.61 (Oliver Betz build, via winget) at `%LOCALAPPDATA%\Programs\ExifTool\exiftool.exe` on tomahawk. | Minimum 12.62 for HEIC `ImageDataHash`. | Configured in `machine.toml`; `doctor` checks the version. |
 | Q-4 | Does OneDrive preserve mtimes exactly (to the microsecond) across machines? | Decides whether the 1 s `mtime_tolerance_us` default is needed, or whether 0 is safe. | Keep 1 s; settle in the M0 spike. |
 | Q-5 | How does the OneDrive client react to moving 1,000+ files out of the synced folder at once? | Batch sizing and user guidance during apply. | Small batches until observed. |
