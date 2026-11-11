@@ -340,7 +340,8 @@ def test_filename_with_line_breaks_never_reaches_exiftool(lib, exiftool_exe):
     env.mcfg.exiftool = exiftool_exe
     build_library(root, {"x": ["a.jpg"]})
     evil = root / "x" / "b\n-overwrite_original\n-Comment=pwned\n.jpg"
-    shutil.copy2(root / "x" / "a.jpg", evil)
+    from fixtures.gen import jpeg_bytes
+    evil.write_bytes(jpeg_bytes(77))              # its own content, so ExifTool would have to be asked about it
     data_a, data_e = (root / "x" / "a.jpg").read_bytes(), evil.read_bytes()
     app.scan(env, ScanOptions())
     assert (root / "x" / "a.jpg").read_bytes() == data_a and evil.read_bytes() == data_e
