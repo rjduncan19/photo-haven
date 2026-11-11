@@ -18,7 +18,7 @@ from .formats import ROOT_MARKER, FormatError, RootMarker, is_cache_file_name
 from .identity import (Machine, ProcessLock, create_machine, load_machine, read_registry, write_registry)
 from .scan.exiftool import MIN_VERSION, ExifTool, ExifToolError, find_exiftool, parse_version
 from .scan.scanner import ScanOptions, ScanResult, Scanner
-from .util import IS_WINDOWS, atomic_write_bytes, is_inside, long_path, utc_now, uuid4
+from .util import IS_WINDOWS, atomic_write_bytes, is_inside, long_path, name_key, utc_now, uuid4
 
 DB_NAME = "photohaven.db"
 
@@ -188,6 +188,22 @@ def root_add(env: Env, name: str, path: pathlib.Path, *, intake: bool = False, k
     env.library.save(env.project_home)
     env.mcfg.roots[r.root_id] = str(path)
     env.mcfg.save(env.state_dir)
+    return r
+
+
+def protect(env: Env, root_id: str, relpath: str, on: bool = True) -> RootInfo:
+    """C: mark a folder tree protected (library.json protected_folders), e.g.
+    because it is shared with other people. Folder and subtree removes are
+    then ignored inside it; only a file-level decision can remove there."""
+    r = env.library.root(root_id)
+    rel = relpath.strip("/")
+    keys = {name_key(p): p for p in r.protected_folders}
+    if on:
+        if name_key(rel) not in keys:
+            r.protected_folders.append(rel)
+    else:
+        r.protected_folders = [p for p in r.protected_folders if name_key(p) != name_key(rel)]
+    env.library.save(env.project_home)
     return r
 
 

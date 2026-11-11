@@ -103,6 +103,15 @@ class Analysis:
     instances: dict[str, list[tuple[int, str, int]]]   # sha -> [(folder_id, name, file_id)]
     sizes: dict[str, int]
     _sugg: dict[int, "Suggestion"] | None = None
+    _roles: dict | None = None
+
+    @property
+    def roles(self) -> dict:
+        """Guessed roles of folders holding copies (photohaven.roles)."""
+        if self._roles is None:
+            from . import roles
+            self._roles = roles.classify(self)
+        return self._roles
 
     def path(self, fid: int) -> str:
         return self.folders[fid].relpath
@@ -279,6 +288,12 @@ def _suggest_one(an: Analysis, fid: int) -> Suggestion:
                     else f"{f.unique_files} photo(s) are unique to this folder")
         return Suggestion("undecided", f"{f.other_files} non-photo file(s) here are not checked for copies; "
                           f"{dup_note}. A remove decision moves only the duplicates.")
+    from . import roles as R
+    role = an.roles.get(fid)
+    if role and role.role in (R.CURATION, R.PURPOSE, R.RECEIVED):
+        return Suggestion("keep", R.describe(role) + ". Its copies carry that meaning; keep it unless you're sure")
+    if role and role.role in (R.SHARED, R.REFILED):
+        return Suggestion("undecided", R.describe(role))
     b, n = best_container(an, fid)
     if b is not None:
         fb = an.folders[b]

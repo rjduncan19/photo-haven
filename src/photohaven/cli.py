@@ -113,6 +113,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-thumbs", action="store_true")
     s.add_argument("--thumb-limit", type=int, default=5000, help="new thumbnails to extract this run")
 
+    s = sub.add_parser("protect", help="protect a folder tree (e.g. shared with others): folder removes are ignored there")
+    s.add_argument("path", help="ROOT:relpath (or relpath with a single root)")
+    s.add_argument("--off", action="store_true", help="remove the protection")
+
     s = sub.add_parser("decisions", help="decision logs")
     ds = s.add_subparsers(dest="sub", required=True)
     d = ds.add_parser("import", help="append a report export to this machine's log")
@@ -256,6 +260,11 @@ def _dispatch(args) -> int:
                 webbrowser.open(index.as_uri())
         elif args.cmd == "decisions":
             return _decisions(env, args)
+        elif args.cmd == "protect":
+            root_id, rel = app.parse_target_path(env, args.path)
+            r = app.protect(env, root_id, rel, on=not args.off)
+            print(("unprotected " if args.off else "protected ") + f"{r.name}:{rel or '/'}; protected now: "
+                  + (", ".join(r.protected_folders) or "none"))
         elif args.cmd == "plan" or (args.cmd == "apply" and not args.execute):
             p, listing = app.make_plan(env, args.decisions)
             _print_plan(env, p, listing, args.top)

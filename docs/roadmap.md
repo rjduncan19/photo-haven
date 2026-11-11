@@ -88,6 +88,7 @@ Deferred from M0/M2/M3 so the base duplicate flow comes first. Exact duplicates 
 Following the checklist in [10 §7](10-testing.md#7-before-touching-the-real-library):
 
 - [x] Disposable copy, full flow: done on a copy of the *whole* library, `C:\testpicsfull` ([run notes](runs/2026-11-11-testpicsfull.md)). It led to `ph-meta/2` (damage rules); curated-selection folders are an open question.
+- [x] Folder roles (curated, purpose, received, shared, filed twice, backup) with evidence, role-based suggestions, and the report's "Shared with others?" question plus `photohaven protect` (07 §4b). On the full copy: 7 curated, 4 purpose, 1 received, 6 filed twice, 14 backups; removal suggestions went from 15 folders to 7, all plain duplicates.
 - [ ] Read-only scan of the real library (`init --read-only`, project home outside OneDrive; 04 "First-run read-only mode"); review the report; note surprises; fix.
 - [ ] First small real batch; verify; observe OneDrive; restore; reapply.
 - [ ] Rounds: easiest wins (fully contained generic folders) first, then fully redundant, then overlap, then file-level leftovers.
