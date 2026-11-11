@@ -159,6 +159,10 @@ class Library:
             roots = [RootInfo(r["root_id"], r["name"], r.get("kind", "onedrive"),
                               list(r.get("intake_folders") or []), list(r.get("protected_folders") or []))
                      for r in d["roots"]]
+            from .formats import is_uuid
+            for r in roots:
+                if not is_uuid(r.root_id):
+                    raise ConfigError(f"{p}: root {r.name!r} has a malformed root_id {r.root_id!r}")
             return cls(d["library_id"], d.get("name", ""), d["created_at"], d.get("apply_machine_id"),
                        roots, {k: v for k, v in d.items() if k not in known})
         except (KeyError, TypeError) as e:

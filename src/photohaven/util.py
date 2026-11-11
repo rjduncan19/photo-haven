@@ -175,10 +175,24 @@ def plain_path(s: str) -> str:
     return s
 
 
+def _norm(p) -> str:
+    return os.path.normcase(os.path.abspath(plain_path(os.fspath(p))))
+
+
+def _resolved(p) -> str:
+    try:
+        return os.path.normcase(os.path.realpath(plain_path(os.fspath(p))))
+    except (OSError, ValueError):
+        return _norm(p)
+
+
 def is_inside(child: pathlib.Path | str, parent: pathlib.Path | str) -> bool:
-    c = os.path.normcase(os.path.abspath(os.fspath(child)))
-    p = os.path.normcase(os.path.abspath(os.fspath(parent)))
-    return c == p or c.startswith(p.rstrip("\\/") + os.sep)
+    """True if child is parent or below it, comparing both the spelled-out
+    and the resolved paths (junctions, symlinks, \\\\?\\ prefixes)."""
+    for c, p in ((_norm(child), _norm(parent)), (_resolved(child), _resolved(parent))):
+        if c == p or c.startswith(p.rstrip("\\/") + os.sep):
+            return True
+    return False
 
 
 # --------------------------------------------------------- file attributes

@@ -58,6 +58,8 @@ class WriteGuard:
                 return False
             s = os.fspath(p)
             s = s.decode() if isinstance(s, bytes) else s
+            if s.startswith("\\\\?\\UNC\\"):
+                s = "\\\\" + s[8:]
             s = s.removeprefix("\\\\?\\")
             return is_inside(s, root) and not self.allow(s)
 
@@ -88,6 +90,18 @@ class WriteGuard:
                                                                                     real(s, d, *a, **k))[2])(real, name))
         real_hidden = util.set_hidden
         monkeypatch.setattr(util, "set_hidden", lambda p: (check("set_hidden", p), real_hidden(p))[1])
+        import sqlite3
+        import subprocess
+        real_connect = sqlite3.connect
+        monkeypatch.setattr(sqlite3, "connect", lambda db, *a, **k: (check("sqlite3.connect", db) if db != ":memory:"
+                                                                     else None, real_connect(db, *a, **k))[1])
+        real_popen = subprocess.Popen.__init__
+
+        def popen(this, args, *a, **k):
+            if k.get("cwd"):
+                check("subprocess cwd", k["cwd"])        # a child process started inside a root
+            return real_popen(this, args, *a, **k)
+        monkeypatch.setattr(subprocess.Popen, "__init__", popen)
 
 
 def _session(env, describer, *, decisions=True):
@@ -236,3 +250,146 @@ def test_case_only_folder_rename(lib, fake):
     states = dict(env.conn.execute("SELECT relpath, state FROM files").fetchall())
     assert states["BACKUP/a.jpg"] == "present" and states["Backup/a.jpg"] == "missing"
     assert app.status(env)["dup_groups"]["groups"] == 1
+
+
+# ------------------------------------------------- after the independent audit
+
+@pytest.mark.exiftool
+def test_whole_read_only_session_through_the_cli(tmp_path, exiftool_exe, monkeypatch, capsys):
+    """Every command a reviewer runs, through the real CLI and real ExifTool
+    (thumbnails included), under the write guard. Only apply is expected to
+    refuse."""
+    from photohaven import cli
+    import subprocess
+    from fixtures.gen import jpeg_bytes
+    root = tmp_path / "Pictures"
+    build_library(root, LIB)
+    (tmp_path / "thumb.jpg").write_bytes(jpeg_bytes(99, size=(32, 24)))
+    subprocess.run([exiftool_exe, "-q", "-overwrite_original", f"-ThumbnailImage<={tmp_path / 'thumb.jpg'}",
+                    str(root / "Camera Roll" / "b.jpg")], check=True)   # a JPEG with an embedded preview
+    before = tree(root)
+    sent: list[str] = []
+    real_payload = et_mod.ExifTool._payload
+    monkeypatch.setattr(et_mod.ExifTool, "_payload",
+                        staticmethod(lambda args, n: (lambda s: (sent.append(s), s)[1])(real_payload(args, n))))
+    guard = WriteGuard(monkeypatch, root)
+    st = ["--state", str(tmp_path / "state")]
+    run = lambda *a: cli.main([*st, *a])
+    assert run("init", "--read-only", "--project-home", str(tmp_path / "home"), "--root", f"pics={root}",
+               "--machine-name", "ro", "--exiftool", exiftool_exe) == 0
+    assert run("scan", "--quiet") == 0
+    assert run("scan", "--quiet", "--rehash") == 0
+    assert run("scan", "--quiet", "--hash-scope", "all", "--audit", "3") == 0
+    assert run("report") == 0
+    assert run("decisions", "add", "remove", "pics:Backup 2019", "--subtree") == 0
+    assert run("decisions", "list") == 0
+    assert run("decisions", "show-effective", "pics:Backup 2019/a.jpg") == 0
+    assert run("plan") == 0
+    assert run("apply") == 0                                # without --execute it is the plan again
+    assert run("apply", "--execute") == 2                   # refused: no root markers in read-only mode
+    assert run("verify") == 0
+    assert run("batches", "list") == 0
+    assert run("status") == 0
+    run("doctor")
+    assert run("rebuild-db", "--quiet") == 0
+    assert not guard.hits
+    assert tree(root) == before
+    thumbs = list((tmp_path / "state" / "thumbs").rglob("*.jpg"))
+    assert thumbs                                           # the thumbnail path really ran
+    assert sent
+    for payload in sent:                                    # what actually reached ExifTool
+        lines = payload.split("\n")
+        for i, a in enumerate(lines):
+            assert a.lower() not in ("-overwrite_original", "-overwrite_original_in_place", "-o", "-out",
+                                     "-tagsfromfile", "-w", "-w!", "-w+", "-geotag", "-srcfile"), payload
+            if a.startswith("-") and "=" in a:
+                assert lines[i - 1] == "-api", payload
+
+
+def test_tampered_cache_record_cannot_steer_writes(lib, fake, tmp_path):
+    """A cache file planted in a root (another machine, a sync accident, an
+    attacker) with a path-like 'sha256' is ignored; nothing is written
+    outside local state."""
+    env, root, tmp = lib
+    build_library(root, {"x": ["a.jpg"]})
+    f = root / "x" / "a.jpg"
+    st = f.stat()
+    evil = {"record": "file", "name": "a.jpg", "size": st.st_size, "mtime_us": st.st_mtime_ns // 1000,
+            "media": "image", "observed_at": "2026-11-11T00:00:00.000000Z", "meta_impl": "exiftool/1;ph-meta/1",
+            "meta": {}, "sha256": "..\\..\\..\\..\\" + "a" * 52}
+    header = {"record": "header", "schema": 1, "kind": "folder-cache", "library_id": env.library.library_id,
+              "root_id": env.library.roots[0].root_id, "folder": "x",
+              "machine_id": "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d", "written_at": "2026-11-11T00:00:00.000000Z",
+              "tool": "photohaven/0.1.0"}
+    (root / "x" / ".photohaven-cache.7a6b5c4d3e2f.jsonl").write_text(
+        formats.canonical(header) + "\n" + formats.canonical(evil) + "\n", encoding="utf-8")
+    res = app.scan(env, ScanOptions(), describer=fake)
+    assert res.files_hashed == 1 and any("bad sha256" in w for w in res.warnings)
+    sha = env.conn.execute("SELECT sha256 FROM files WHERE relpath = 'x/a.jpg'").fetchone()[0]
+    assert formats.is_sha256(sha)
+    before = sorted(p for p in tmp_path.rglob("*") if "state-a" not in p.parts)
+    app.make_report(env, out=tmp / "rep", thumbs=False)
+    after = sorted(p for p in tmp_path.rglob("*") if "state-a" not in p.parts and "rep" not in p.parts)
+    assert after == [p for p in before if "rep" not in p.parts]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="NTFS forbids line breaks in names")
+@pytest.mark.exiftool
+def test_filename_with_line_breaks_never_reaches_exiftool(lib, exiftool_exe):
+    env, root, tmp = lib
+    env.mcfg.exiftool = exiftool_exe
+    build_library(root, {"x": ["a.jpg"]})
+    evil = root / "x" / "b\n-overwrite_original\n-Comment=pwned\n.jpg"
+    from fixtures.gen import jpeg_bytes
+    evil.write_bytes(jpeg_bytes(77))              # its own content, so ExifTool would have to be asked about it
+    data_a, data_e = (root / "x" / "a.jpg").read_bytes(), evil.read_bytes()
+    app.scan(env, ScanOptions())
+    assert (root / "x" / "a.jpg").read_bytes() == data_a and evil.read_bytes() == data_e
+    flags = {r[0] for r in env.conn.execute("SELECT g.flag FROM flags g JOIN files f USING(file_id) "
+                                            "WHERE f.name LIKE 'b%'")}
+    assert "exiftool_error" in flags
+    assert not et_mod.safe_arg_path("C:/x/a\nb.jpg") and not et_mod.safe_arg_path(" /x/a.jpg")
+
+
+def test_state_dir_or_report_inside_a_root_is_refused(tmp_path, fake):
+    root = tmp_path / "Pictures"
+    build_library(root, {"x": ["a.jpg"]})
+    with pytest.raises(app.ConfigError, match="overlaps"):
+        app.init(root / "state", tmp_path / "home", [("pics", root)], read_only=True)
+    env, _ = app.init(tmp_path / "state", tmp_path / "home", [("pics", root)], read_only=True)
+    try:
+        app.scan(env, ScanOptions(), describer=fake)
+        with pytest.raises(ValueError, match="inside the library root"):
+            app.make_report(env, out=root / "report", thumbs=False)
+        assert not (root / "report").exists()
+        extra = tmp_path / "More"
+        extra.mkdir()
+        app.root_add(env, "more", extra)
+        assert not (extra / formats.ROOT_MARKER).exists()   # read-only: no marker from root add either
+    finally:
+        env.close()
+
+
+def test_files_that_go_cloud_only_mid_session_are_not_read(lib, fake, monkeypatch, tmp_path):
+    from photohaven import report as report_mod
+    from photohaven.scan import scanner as scanner_mod
+    env, root, tmp = lib
+    build_library(root, {"x": ["a.jpg"]})
+    # between the walk and the read, OneDrive dehydrates the file
+    monkeypatch.setattr(scanner_mod, "is_placeholder", lambda st: True)
+    h = scanner_mod.hash_file(str(root / "x" / "a.jpg"))
+    assert h.error == "cloud_only" and h.sha256 is None
+    monkeypatch.undo()
+    app.scan(env, ScanOptions(), describer=fake)
+    # between the scan and the report, too: no thumbnail is extracted
+    calls = []
+
+    class Spy:
+        def embedded_preview(self, p):
+            calls.append(p)
+            return None
+    monkeypatch.setattr(report_mod, "is_placeholder", lambda st: True)
+    from photohaven import report
+    report.build(env.conn, env.library, state_dir=env.state_dir, project_home=env.project_home, machine_name="m",
+                 out=tmp / "rep", exiftool=Spy())
+    assert calls == []

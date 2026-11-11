@@ -607,7 +607,8 @@ def empty_folders(env) -> list[tuple[str, str, list[str]]]:
             if os.path.normcase(dirpath) == holding or os.path.normcase(dirpath).startswith(holding + os.sep):
                 continue
             subdirs_ok = all(os.path.join(dirpath, d) in removable for d in dirnames)
-            only_cache = all(f.startswith(".photohaven-cache.") and f.endswith(".jsonl") for f in filenames)
+            only_cache = all(f.startswith(".photohaven-cache.") and (f.endswith(".jsonl") or f.endswith(".jsonl.tmp"))
+                             for f in filenames)
             if subdirs_ok and only_cache:
                 removable.add(dirpath)
                 out.append((r.root_id, dirpath, filenames))

@@ -33,6 +33,21 @@ class FormatError(Exception):
     """A file doesn't follow the spec."""
 
 
+import re as _re
+_HEX64 = _re.compile(r"[0-9a-f]{64}")
+_UUID = _re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def is_sha256(s) -> bool:
+    """§1.5: lowercase hex, 64 digits. Values read from files are checked
+    before they are ever used to build a path (thumbnails are named by hash)."""
+    return isinstance(s, str) and _HEX64.fullmatch(s) is not None
+
+
+def is_uuid(s) -> bool:
+    return isinstance(s, str) and _UUID.fullmatch(s) is not None
+
+
 class NewerSchemaError(FormatError):
     """§1.8: refuse files written by a newer spec version; never guess."""
 
@@ -216,8 +231,12 @@ class FileFacts:
             raise FormatError(f"bad name {name!r}")
         if not isinstance(size, int) or not isinstance(mtime, int):
             raise FormatError(f"{name}: bad size or mtime_us")
-        if sha is not None and (not isinstance(sha, str) or len(sha) != 64):
+        if sha is not None and not is_sha256(sha):
             raise FormatError(f"{name}: bad sha256")
+        if d.get("content_sha256") is not None and not is_sha256(d.get("content_sha256")):
+            raise FormatError(f"{name}: bad content_sha256")
+        if name in (".", "..") or "\\" in name or "\x00" in name:
+            raise FormatError(f"bad name {name!r}")
         skip = d.get("skip")
         if (sha is None) != (skip is not None):
             raise FormatError(f"{name}: sha256 must be null exactly when skip is set")
@@ -357,7 +376,7 @@ class Target:
                 raise FormatError(f"folder target needs a scope and no sha256/size: {d!r}")
         else:
             sha = d.get("sha256")
-            if not path or not isinstance(sha, str) or len(sha) != 64 or not isinstance(d.get("size"), int) \
+            if not path or not is_sha256(sha) or not isinstance(d.get("size"), int) \
                     or "scope" in d:
                 raise FormatError(f"file target needs path, sha256 and size and no scope: {d!r}")
         return cls(kind, d["root_id"], path, d.get("scope"), d.get("sha256"), d.get("size"))
@@ -504,6 +523,16 @@ class QuarantineEvent:
             raise FormatError(f"quarantine record missing {e}") from None
         if ev.event not in QUARANTINE_EVENTS:
             raise FormatError(f"unknown quarantine event {ev.event!r}")
+        if not is_sha256(ev.sha256) or not is_uuid(ev.root_id) or not is_uuid(ev.keeper_root_id):
+            raise FormatError("bad sha256 or root_id in quarantine record")
+        from .util import validate_relpath
+        try:
+            for p in (ev.path, ev.keeper_path, ev.qpath):
+                validate_relpath(p)
+        except ValueError as e:
+            raise FormatError(str(e)) from None
+        if not ev.qpath.startswith(f"{ev.batch_id}/files/{ev.root_id}/"):
+            raise FormatError(f"qpath {ev.qpath!r} is outside its batch")
         return ev
 
 

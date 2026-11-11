@@ -15,7 +15,8 @@ import sqlite3
 from . import TOOL, analysis, decisions
 from .analysis import Analysis, copy_rank, suggest, suggest_subtree
 from .config import Library
-from .util import atomic_write_bytes, atomic_write_text, long_path, utc_now, uuid7
+from .formats import is_sha256
+from .util import atomic_write_bytes, atomic_write_text, is_inside, is_placeholder, long_path, utc_now, uuid7
 
 THUMBS_PER_ROW = 6
 OVERLAP_MIN = 0.5
@@ -47,6 +48,9 @@ def build(conn: sqlite3.Connection, library: Library, *, state_dir: pathlib.Path
     an = analysis.analyze(conn, library)
     report_id = uuid7()
     out = pathlib.Path(out) if out else pathlib.Path(state_dir) / "reports" / report_id
+    for rid, p in conn.execute("SELECT root_id, local_path FROM roots WHERE local_path IS NOT NULL"):
+        if is_inside(out, p) or is_inside(p, out):
+            raise ValueError(f"the report folder {out} would be inside the library root {p}; choose another --out")
     os.makedirs(long_path(out / "detail"), exist_ok=True)
     thumbs_dir = pathlib.Path(state_dir) / "thumbs"
     roots = {r.root_id: r.name for r in library.roots}
@@ -70,7 +74,7 @@ def build(conn: sqlite3.Connection, library: Library, *, state_dir: pathlib.Path
 
     def thumb(sha: str, path: str | None, media: str) -> str | None:
         nonlocal made
-        if media not in ("image", "raw"):
+        if media not in ("image", "raw") or not is_sha256(sha):
             return None
         p = thumbs_dir / sha[:2] / f"{sha}.jpg"
         if sha in have or p.exists():
@@ -79,11 +83,13 @@ def build(conn: sqlite3.Connection, library: Library, *, state_dir: pathlib.Path
         if exiftool is None or path is None or made >= thumb_limit:
             return None
         try:
+            if is_placeholder(os.stat(long_path(path))):
+                return None             # became cloud-only since the scan: reading would download it (rule 4)
             data = exiftool.embedded_preview(path)
         except Exception:
             data = None
         made += 1
-        if not data:
+        if not data or not is_inside(p, thumbs_dir):      # hash-named, so always inside; checked before writing
             return None
         atomic_write_bytes(p, data)
         have.add(sha)

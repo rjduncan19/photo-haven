@@ -133,6 +133,9 @@ def hash_file(path: str) -> _Hashed:
         try:
             with f:
                 st0 = os.fstat(f.fileno())
+                if is_placeholder(st0):
+                    # it became cloud-only after the walk: reading would download it (rule 4)
+                    return _Hashed(error="cloud_only", detail="became cloud-only during the scan")
                 h = hashlib.sha256()
                 n = 0
                 while chunk := f.read(CHUNK):
@@ -441,6 +444,12 @@ class Scanner:
         if h.error == "vanished":
             e.vanished = True
             return
+        if h.error == "cloud_only":
+            e.placeholder = True
+            e.facts = FileFacts(name=e.name, size=e.size, mtime_us=e.mtime_us, media=e.media, sha256=None,
+                                observed_at=self._now, ctime_us=e.ctime_us, skip="cloud_only")
+            res.cloud_only += 1
+            return
         if h.error:
             res.errors += 1
             skip = "locked" if h.error == "locked" else "unreadable"
@@ -482,6 +491,11 @@ class Scanner:
                 continue
             c = self._content_for(e.facts.sha256)
             if c is None and e.media in DESCRIBED_MEDIA and self.describer and not e.placeholder:
+                try:
+                    if is_placeholder(os.stat(e.path)):
+                        continue        # became cloud-only since it was hashed: describe it later
+                except OSError:
+                    continue
                 todo.setdefault(e.facts.sha256, e)
         items = list(todo.items())
         for i in range(0, len(items), DESCRIBE_BATCH):

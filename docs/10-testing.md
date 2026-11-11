@@ -75,6 +75,7 @@ Two (or three) machine identities in separate local-state dirs share one fixture
 - Every argument list sent to ExifTool during a scan and a report is read-only (no output files, no tag assignments except `-api` options).
 - PNG and HEIC (via pillow-heif) fixtures with real ExifTool: `ImageDataHash` survives a rating write, and a truncated copy is damaged with no content hash.
 - 1,800 files in 180 folders: rescan hashes nothing, rebuild reproduces the DB, the report finds every planted backup.
+- After an independent audit (2026-11-11): every CLI command of a read-only review session, with real ExifTool and thumbnail extraction, under the guard (which also covers `sqlite3.connect`, child-process working folders and `\\?\UNC\` paths), checking the exact bytes sent to ExifTool; a planted cache record whose "sha256" is a path is rejected; a filename with line breaks never reaches ExifTool (Linux); a state folder or report folder inside a root is refused, and `root add` writes no marker in read-only mode; a file that turns cloud-only between walk and read, or between scan and report, is not read.
 
 ## 6. Windows-specific
 
