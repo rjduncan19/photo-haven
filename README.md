@@ -14,7 +14,7 @@ Photo Haven is a tool for bringing order to a large family photo library that ha
 
 ## Status
 
-**M3 (plan and apply) done.** `photohaven init`, `scan`, `report`, `decisions`, `plan`, `apply`, `verify`, `batches`, `tidy`, `status`, `doctor` and `rebuild-db` work on test libraries; restore and purge (M4) come next. Not ready for the real library yet. The [format spec](docs/03-format-spec.md) is the contract every implementation must follow.
+**Phase 1 (dedupe) is feature-complete on test data (M0–M4).** `photohaven init`, `scan`, `report`, `decisions`, `plan`, `apply`, `verify`, `purge`, `restore`, `batches`, `tidy`, `status`, `doctor` and `rebuild-db` work on test libraries. Next is M5, the first run on real folders. Not ready for the real library yet. The [format spec](docs/03-format-spec.md) is the contract every implementation must follow.
 
 ```
 python -m pip install -e ".[dev]"
@@ -24,6 +24,8 @@ photohaven --state STATE report --open    # review in the browser, then Export
 photohaven --state STATE decisions import decisions-<report_id>.jsonl
 photohaven --state STATE plan             # dry run: what would move, what stays, and why
 photohaven --state STATE apply --execute  # moves exactly the plan you reviewed into PhotoHaven-DELETE, then verifies
+photohaven --state STATE purge --batch ID            # 14-day hold; byte-compares each file with its kept copy first
+photohaven --state STATE restore --batch ID          # puts a batch back; works from the batch manifest alone
 photohaven --state STATE status
 python -m pytest                         # PHOTOHAVEN_DUPECASES=<corpus> adds the M0 acceptance run
 ```

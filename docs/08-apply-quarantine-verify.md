@@ -121,6 +121,8 @@ Without `--execute`, purge runs all the compares and reports what it would delet
 
 When a batch is fully purged, its manifest is kept (it's tiny) as a permanent record.
 
+**Refinements (M4):** items refused earlier (`purge_refused`) are compared again on the next purge, so fixing a keeper and re-running purges them. Files the user deleted from the DELETE folder by hand are first recorded as `purged` (`deleted outside Photo Haven`) and don't block the batch. Empty folders left in the batch's `files/` tree are removed (Photo Haven's own); the manifest stays. A cloud-only keeper is downloaded by the compare, and purge says how many were.
+
 ## 8. Restore
 
 `photohaven restore --batch ID [--path RELPATH]` works from the manifest:
@@ -129,6 +131,13 @@ When a batch is fully purged, its manifest is kept (it's tiny) as a permanent re
 - Original path holds the same `sha256` already → nothing to do; log `restored` with detail `already_present`.
 - Original path holds different content → restore beside it as `<stem> (restored)<.ext>` and flag it.
 - Root not mapped on this machine → refuse, naming the root.
+
+**Refinements (M4):**
+
+- Before moving anything back, restore re-hashes the copy in the DELETE folder and refuses it if it no longer matches its `sha256`.
+- *Already present* means the same bytes are back at the original path (someone copied it back by hand, or a crash fell between the rename and the log entry). The extra copy in the DELETE folder is then removed after a byte compare, so it doesn't linger.
+- Restore needs only `machine.toml` and the manifest (I-6). With the project home or DB gone it restores anyway and says so; running it again later (when they're back) records the `restored` events, because it skips files already back in place.
+- `--path` takes a file or a folder (everything under it).
 
 ## 9. OneDrive considerations
 

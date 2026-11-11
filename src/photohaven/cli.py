@@ -137,6 +137,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--quiet", action="store_true")
     s = sub.add_parser("verify", help="re-hash moved files and check their kept copies")
     s.add_argument("--batch")
+    s.add_argument("--deep", action="store_true", help="also re-hash the kept copies, and re-check verified items")
+    s = sub.add_parser("purge", help="permanently delete a verified batch from its DELETE folder (dry run unless --execute)")
+    s.add_argument("--batch", required=True)
+    s.add_argument("--execute", action="store_true")
+    s.add_argument("--min-age", type=float, default=14, metavar="DAYS", help="hold period (default 14 days)")
+    s = sub.add_parser("restore", help="put a batch (or part of it) back where it came from")
+    s.add_argument("--batch", required=True)
+    s.add_argument("--path", help="only this file or folder (relative to its root)")
     s = sub.add_parser("batches", aliases=["quarantine"], help="batches of moved duplicates (PhotoHaven-DELETE)")
     qs = s.add_subparsers(dest="sub", required=True)
     qs.add_parser("list")
@@ -177,6 +185,29 @@ def _dispatch(args) -> int:
         print(f"machine {env.machine.name} ({env.machine.short}); local state {env.state_dir}")
         env.close()
         return 0
+    if args.cmd == "restore":
+        from .restore import restore
+        try:
+            env = app.open_env(state)
+        except (ConfigError, FormatError) as e:
+            print(f"note: {e}", file=sys.stderr)
+            env = None
+        try:
+            r = restore(state, args.batch, args.path, env=env)
+        finally:
+            if env:
+                env.close()
+        for n in r.notes:
+            print("note: " + n)
+        print(f"batch {r.batch_id}: restored {len(r.restored)}, beside a different file {len(r.beside)}, "
+              f"already there {len(r.already)}, refused {len(r.refused)}")
+        for p, new in r.beside:
+            print(f"  {p} -> {new}")
+        for p, why in r.refused:
+            print(f"  refused {p}: {why}")
+        if r.restored or r.beside:
+            print("Run 'photohaven scan' so the database and caches see the restored files.")
+        return 1 if r.refused else 0
     if args.cmd == "doctor":
         checks = app.doctor(state)
         for c in checks:
@@ -241,11 +272,27 @@ def _dispatch(args) -> int:
             a.check_machine()
             for m in a.recover():
                 print("recovered: " + m)
-            ok, failed = a.verify(args.batch)
+            ok, failed = a.verify(args.batch, deep=args.deep)
             print(f"verified {ok}; failed {len(failed)}")
             for p, why in failed:
                 print(f"  FAILED {p}: {why}")
             return 1 if failed else 0
+        elif args.cmd == "purge":
+            from .apply import Applier, purge
+            from . import db
+            if args.execute:
+                db.backup(env.conn, env.state_dir)
+            r = purge(Applier(env), args.batch, execute=args.execute, min_age_days=args.min_age)
+            verb = "deleted" if args.execute else "would delete"
+            print(f"batch {r.batch_id}: {verb} {len(r.deleted or r.would_delete)} files ({_human(r.bytes)}) after a "
+                  f"byte-for-byte compare with each kept copy; refused {len(r.refused)}")
+            if r.cloud_keepers:
+                print(f"  {r.cloud_keepers} kept copies were cloud-only; comparing them downloaded them")
+            for p, why in r.refused:
+                print(f"  refused {p}: {why}")
+            if not args.execute and (r.would_delete or r.refused):
+                print("Run again with --execute to delete.")
+            return 1 if r.refused else 0
         elif args.cmd in ("batches", "quarantine"):
             return _quarantine(env, args)
         elif args.cmd == "tidy":

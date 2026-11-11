@@ -206,8 +206,9 @@ def scan(env: Env, opts: ScanOptions, *, describer=None, use_exiftool: bool = Tr
 
 
 def rebuild_db(env: Env, progress=None) -> ScanResult:
-    """06 §6: a fresh DB from durable sources, hashing nothing. (Decision and
-    quarantine logs are ingested from M2/M3 on; there are none yet.)"""
+    """06 §6: a fresh DB from durable sources, hashing nothing: folder caches
+    (by a scan that reuses facts only), decision logs (ingested by scan), and
+    this machine's quarantine log and batch manifests."""
     env.conn.close()
     p = env.state_dir / DB_NAME
     for suffix in ("", "-wal", "-shm"):
@@ -217,7 +218,49 @@ def rebuild_db(env: Env, progress=None) -> ScanResult:
     env.conn = db.connect(p)
     db.set_meta(env.conn, "library_id", env.library.library_id)
     db.set_meta(env.conn, "last_rebuild_at", utc_now())
-    return scan(env, ScanOptions(hashing=False), use_exiftool=False, progress=progress)
+    res = scan(env, ScanOptions(hashing=False), use_exiftool=False, progress=progress)
+    res.warnings += ingest_quarantine(env)
+    return res
+
+
+def ingest_quarantine(env: Env) -> list[str]:
+    """06 §6 step 5: rebuild `batches` and `quarantine_items` for this machine
+    from its quarantine log, cross-checked against the manifests on disk."""
+    from . import quarantine
+    from .restore import find_batch
+    events, warnings = quarantine.read_all(env.project_home, env.library.library_id)
+    mine = sorted((e for e in events if e.machine_id == env.machine.machine_id), key=lambda e: (e.at, e.seq))
+    last: dict[tuple[str, str, str], object] = {}
+    first: dict[str, str] = {}
+    for e in mine:
+        last[(e.batch_id, e.root_id, e.path)] = e
+        first.setdefault(e.batch_id, e.at)
+    c = env.conn
+    c.execute("BEGIN")
+    try:
+        for batch_id, created in first.items():
+            try:
+                qroot = str(find_batch(env.mcfg, batch_id).parent)
+            except ConfigError:
+                qroot = ""
+                warnings.append(f"batch {batch_id}: manifest not found on this machine")
+            c.execute("INSERT OR IGNORE INTO batches(batch_id, plan_id, machine_id, quarantine_root, created_at, state) "
+                      "VALUES(?, NULL, ?, ?, ?, 'applied')", (batch_id, env.machine.machine_id, qroot, created))
+        for (batch_id, root_id, path), e in last.items():
+            c.execute("INSERT OR REPLACE INTO quarantine_items(batch_id, root_id, relpath, sha256, size, keeper_root_id, "
+                      "keeper_relpath, qpath, state, moved_at, last_error) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                      (batch_id, root_id, path, e.sha256, e.size, e.keeper_root_id, e.keeper_path, e.qpath, e.event,
+                       e.at if e.event == "moved" else None, e.detail))
+        for batch_id in first:
+            states = {r[0] for r in c.execute("SELECT state FROM quarantine_items WHERE batch_id = ?", (batch_id,))}
+            state = ("purged" if states <= {"purged"} else "restored" if states <= {"restored", "purged"}
+                     else "verified" if states <= {"verified", "purged", "restored"} else "applied")
+            c.execute("UPDATE batches SET state = ? WHERE batch_id = ?", (state, batch_id))
+        c.execute("COMMIT")
+    except BaseException:
+        c.execute("ROLLBACK")
+        raise
+    return warnings
 
 
 def make_report(env: Env, *, out: pathlib.Path | None = None, thumbs: bool = True, thumb_limit: int = 5000):
