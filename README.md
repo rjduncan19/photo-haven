@@ -30,7 +30,7 @@ photohaven --state STATE status
 python -m pytest                         # PHOTOHAVEN_DUPECASES=<corpus> adds the M0 acceptance run
 ```
 
-`--state` defaults to `%LOCALAPPDATA%\PhotoHaven`. Use `scan --no-folder-cache` to keep even the cache files out of the photo folders.
+`--state` defaults to `%LOCALAPPDATA%\PhotoHaven`. For a first look at a real library, `init --read-only` (with the project home outside OneDrive) writes nothing at all into your folders: no root marker, and the cache files stay in local state. See [04 "First-run read-only mode"](docs/04-scanner.md#first-run-read-only-mode).
 
 ## Documentation
 

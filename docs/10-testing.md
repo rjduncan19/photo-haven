@@ -66,9 +66,19 @@ Two (or three) machine identities in separate local-state dirs share one fixture
 - `rebuild-db` on each machine → DB equals a freshly scanned DB (excluding scan bookkeeping).
 - A conflict-copy cache file name (`…-PCNAME.jsonl`) → read as a source and reported by `doctor`.
 
+## 5b. Non-invasiveness
+
+`tests/test_noninvasive.py`, run in CI on Windows and Linux:
+
+- A read-only setup (`init --read-only`) and a whole review session (scan, audit, report, decisions, plan, status, rebuild-db) under a guard that fails on any write, rename, delete, attribute or time change inside the root; afterwards every entry's bytes, size, mtime and attributes equal the snapshot taken before. Apply refuses without root markers.
+- A normal scan writes only this machine's own cache files.
+- Every argument list sent to ExifTool during a scan and a report is read-only (no output files, no tag assignments except `-api` options).
+- PNG and HEIC (via pillow-heif) fixtures with real ExifTool: `ImageDataHash` survives a rating write, and a truncated copy is damaged with no content hash.
+- 1,800 files in 180 folders: rescan hashes nothing, rebuild reproduces the DB, the report finds every planted backup.
+
 ## 6. Windows-specific
 
-CI runs on `windows-latest` as well as Linux. Windows-only tests cover: hidden attribute on cache files; long paths over 260 characters; case-only renames; placeholder attribute handling (simulated by patching `st_file_attributes`, since CI has no OneDrive); same-volume vs cross-volume moves (temp dirs on two drives where the runner allows, otherwise simulated).
+CI runs on `windows-latest` as well as Linux. Windows-only tests cover: hidden attribute on cache files; long paths over 260 characters; case-only renames (a folder renamed `Backup` → `BACKUP` rehashes nothing); placeholder attribute handling (simulated by patching `st_file_attributes`, since CI has no OneDrive); same-volume vs cross-volume moves (temp dirs on two drives where the runner allows, otherwise simulated).
 
 ExifTool is installed in CI from the official Windows zip / Linux package at a pinned version.
 

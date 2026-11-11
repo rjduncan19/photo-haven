@@ -268,6 +268,11 @@ class Scanner:
                                hidden=True)
             self._warn(f"root {root.name}: wrote a new root marker at {p}")
             return True
+        if opts.no_folder_cache or self.mcfg.cache_placement == "local_only":
+            # read-only scans write nothing into the root, so they don't need its marker;
+            # apply still does (it checks before moving anything)
+            self._warn(f"root {root.name}: no root marker at {p}; read-only scan continues")
+            return True
         self._warn(f"root {root.name}: no root marker at {p}; refusing to scan (use --adopt-root if this "
                    "really is the root)")
         return False

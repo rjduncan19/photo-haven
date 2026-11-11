@@ -95,7 +95,11 @@ An optional partial-hash prefilter (first and last 64 KiB) for same-size groups 
 
 ## First-run read-only mode
 
-`scan --no-folder-cache` (equivalent to `cache_placement = "local_only"` for one run) writes cache files under local state instead of into library folders. The very first pass over the real library then changes nothing at all inside OneDrive. After reviewing the results, a normal scan copies the facts into folder caches without rehashing, because local-only caches are read as another source of cached facts.
+`init --read-only` sets `cache_placement = "local_only"` and writes no root markers. Then nothing at all is written inside a root: cache files go under local state, scans continue without a marker (with a warning), and reports, decisions and `plan` work as usual. Only `apply` needs the markers, and refuses without them; `scan --adopt-root` writes them when you're ready. `scan --no-folder-cache` is the same for one run.
+
+Put the project home outside OneDrive too for a trial (for example `C:\PhotoHaven-trial\home`), and the whole session writes nothing to OneDrive. After reviewing the results, a normal scan copies the facts into folder caches without rehashing, because local-only caches are read as another source of cached facts.
+
+What a read-only session still does to the machine, by design: it reads every byte once (SHA-256) and each unique image once more (ExifTool), so expect heavy disk reads for an hour or two on the first pass; it skips cloud-only files instead of downloading them; it holds each file open for reading while hashing, which can briefly delay OneDrive syncing that file; and it writes only under local state (database, local caches, reports, thumbnails). `tests/test_noninvasive.py` checks this in CI: a whole session (scan, audit, report, decisions, plan, status, rebuild-db) under a guard that fails on any write inside the root, with every file's bytes, times and attributes compared before and after, and every ExifTool command checked to be read-only.
 
 ## Stage 6: relate
 

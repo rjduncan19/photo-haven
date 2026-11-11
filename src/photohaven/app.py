@@ -87,9 +87,13 @@ def _root_kind(path: pathlib.Path) -> str:
 
 def init(state_dir: pathlib.Path, project_home: pathlib.Path, roots: list[tuple[str, pathlib.Path]], *,
          quarantine: str | None = None, library_name: str = "", machine_name: str | None = None,
-         exiftool: str | None = None) -> tuple[Env, list[str]]:
+         exiftool: str | None = None, read_only: bool = False) -> tuple[Env, list[str]]:
     """Set up this machine; create the library if the project home has none,
-    otherwise join it and map the named roots. Returns (env, notes)."""
+    otherwise join it and map the named roots. Returns (env, notes).
+
+    `read_only` writes nothing into the roots: no root markers, and folder
+    caches under local state (cache_placement = "local_only"). Scans and
+    reports work; apply refuses until the roots are marked."""
     state_dir = pathlib.Path(state_dir)
     notes: list[str] = []
     if (state_dir / "machine.toml").exists():
@@ -113,14 +117,16 @@ def init(state_dir: pathlib.Path, project_home: pathlib.Path, roots: list[tuple[
         library = Library.load(project_home)
         for n, p in roots:
             r = library.root(n)
-            _verify_marker(library, r, p)
+            if not (read_only and not (p / ROOT_MARKER).exists()):
+                _verify_marker(library, r, p)
             mapping[r.root_id] = str(p)
         notes.append(f"joined library {library.name or library.library_id}")
     else:
         library = Library(uuid4(), library_name, utc_now(), machine.machine_id, [])
         for n, p in roots:
             r = RootInfo(uuid4(), n, _root_kind(p))
-            _write_marker(library, r, p)
+            if not read_only:
+                _write_marker(library, r, p)
             library.roots.append(r)
             mapping[r.root_id] = str(p)
         library.save(project_home)
@@ -131,7 +137,11 @@ def init(state_dir: pathlib.Path, project_home: pathlib.Path, roots: list[tuple[
     exe = find_exiftool(exiftool)
     if not exe:
         notes.append("ExifTool not found: pass --exiftool PATH or set exiftool in machine.toml")
-    MachineConfig(machine.name, str(project_home), quarantine, exe, roots=mapping).save(state_dir)
+    MachineConfig(machine.name, str(project_home), quarantine, exe, roots=mapping,
+                  cache_placement="local_only" if read_only else "in_folder").save(state_dir)
+    if read_only:
+        notes.append("read-only: nothing will be written into the roots (no root markers; folder caches stay in "
+                     "local state). Apply needs root markers: 'photohaven scan --adopt-root' writes them later.")
     (project_home / "logs").mkdir(exist_ok=True)
     env = open_env(state_dir)
     write_registry(project_home, machine, force=True)
@@ -383,8 +393,11 @@ def doctor(state_dir: pathlib.Path | None = None) -> list[Check]:
                 out.append(Check("warn", f"root {r.name}", "not mapped on this machine"))
                 continue
             try:
-                _verify_marker(env.library, r, pathlib.Path(p))
-                out.append(Check("ok", f"root {r.name}", p))
+                if env.mcfg.cache_placement == "local_only" and not (pathlib.Path(p) / ROOT_MARKER).exists():
+                    out.append(Check("ok", f"root {r.name}", f"{p} (read-only: no root marker yet)"))
+                else:
+                    _verify_marker(env.library, r, pathlib.Path(p))
+                    out.append(Check("ok", f"root {r.name}", p))
             except (ConfigError, FormatError) as e:
                 out.append(Check("fail", f"root {r.name}", str(e)))
             if is_inside(env.project_home, p):
@@ -422,6 +435,8 @@ def doctor(state_dir: pathlib.Path | None = None) -> list[Check]:
                              f"{env.mcfg.quarantine_root} instead of each root's PhotoHaven-DELETE (D-10)"))
         else:
             out.append(Check("ok", "delete folder", "PhotoHaven-DELETE at the top of each root"))
+        if env.mcfg.cache_placement == "local_only":
+            out.append(Check("ok", "read-only", "cache_placement = local_only: scans write nothing into the roots"))
     finally:
         env.close()
     return out

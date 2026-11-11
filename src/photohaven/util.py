@@ -217,7 +217,8 @@ def atomic_write_bytes(path: pathlib.Path | str, data: bytes, *, hidden: bool = 
     it is set again afterwards when asked."""
     target = long_path(path)
     tmp = target + ".tmp"
-    os.makedirs(os.path.dirname(target), exist_ok=True)
+    if not os.path.isdir(os.path.dirname(target)):
+        os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(tmp, "wb") as f:
         f.write(data)
         f.flush()
