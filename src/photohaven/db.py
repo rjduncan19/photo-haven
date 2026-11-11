@@ -55,6 +55,22 @@ def connect(path: pathlib.Path | str, *, create: bool = True) -> sqlite3.Connect
     return conn
 
 
+def backup(conn: sqlite3.Connection, state_dir: pathlib.Path, keep: int = 7) -> pathlib.Path:
+    """06 §6: copy the DB to local state backups/ before apply and purge."""
+    import datetime
+    d = pathlib.Path(state_dir) / "backups"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"photohaven-{datetime.datetime.now(datetime.timezone.utc):%Y%m%d-%H%M%S-%f}.db"
+    dst = sqlite3.connect(p)
+    try:
+        conn.backup(dst)
+    finally:
+        dst.close()
+    for old in sorted(d.glob("photohaven-*.db"))[:-keep]:
+        old.unlink()
+    return p
+
+
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                  (key, value))

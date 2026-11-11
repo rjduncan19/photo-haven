@@ -148,7 +148,7 @@ class Effective:
     chain: list[Step]
 
 
-def _latest(rows: list[sqlite3.Row]) -> sqlite3.Row | None:
+def _latest(rows) -> sqlite3.Row | None:
     return max(rows, key=lambda r: (r["at"], r["machine_id"], r["seq"])) if rows else None
 
 
@@ -160,50 +160,61 @@ def is_protected(library: Library, root_id: str, folder_relpath: str) -> bool:
     return folder_flag(folder_relpath, r.intake_folders) or folder_flag(folder_relpath, r.protected_folders)
 
 
+class Resolver:
+    """All dedupe decisions loaded once, resolved in memory (07 §5)."""
+
+    def __init__(self, conn: sqlite3.Connection, library: Library):
+        self.library = library
+        self.idx: dict[tuple[str, str, str], list[sqlite3.Row]] = {}
+        for r in conn.execute("SELECT * FROM decisions WHERE phase = ?", (PHASE,)):
+            kind = r["target_kind"] if r["target_kind"] == "file" else r["scope"]
+            self.idx.setdefault((r["root_id"], r["path_key"], kind), []).append(r)
+
+    def effective(self, root_id: str, relpath: str, sha256: str | None) -> Effective:
+        """File decision (same bytes) > folder decision on its folder >
+        nearest subtree decision > undecided. Latest wins within a level;
+        `undecided` there falls through. Folder/subtree removes are ignored
+        inside protected/intake folders."""
+        folder, _ = split_rel(relpath)
+        protected = is_protected(self.library, root_id, folder)
+        chain: list[Step] = []
+
+        def level(kind: str, path: str, rows) -> Effective | None:
+            r = _latest(rows)
+            if r is None:
+                return None
+            s = Step(kind, path, r["action"], r["at"], r["machine_id"])
+            chain.append(s)
+            if r["action"] == "undecided":
+                s.note = "undecided here: falls through"
+                return None
+            if protected and kind != "file" and r["action"] == "remove":
+                s.note = "ignored: protected/intake folder (only a file decision can remove here)"
+                return None
+            s.used = True
+            return Effective(r["action"], kind, chain)
+
+        if sha256:
+            rows = self.idx.get((root_id, name_key(relpath), "file"), [])
+            for r in rows:
+                if r["sha256"] != sha256:
+                    chain.append(Step("file", relpath, r["action"], r["at"], r["machine_id"],
+                                      note="ignored: made about different bytes"))
+            if (e := level("file", relpath, [r for r in rows if r["sha256"] == sha256])):
+                return e
+        if (e := level("folder", folder, self.idx.get((root_id, name_key(folder), "folder"), []))):
+            return e
+        parts = folder.split("/") if folder else []
+        for n in range(len(parts), -1, -1):
+            anc = "/".join(parts[:n])
+            if (e := level("subtree", anc, self.idx.get((root_id, name_key(anc), "subtree"), []))):
+                return e
+        return Effective("undecided", None, chain)
+
+
 def effective(conn: sqlite3.Connection, library: Library, root_id: str, relpath: str,
               sha256: str | None) -> Effective:
-    """07 §5: file decision (same bytes) > folder decision on its folder >
-    nearest subtree decision > undecided. Latest wins within a level;
-    `undecided` there falls through. Folder/subtree removes are ignored
-    inside protected/intake folders."""
-    folder, _ = split_rel(relpath)
-    protected = is_protected(library, root_id, folder)
-    chain: list[Step] = []
-
-    def level(kind: str, path: str, rows: list[sqlite3.Row]) -> Effective | None:
-        r = _latest(rows)
-        if r is None:
-            return None
-        s = Step(kind, path, r["action"], r["at"], r["machine_id"])
-        chain.append(s)
-        if r["action"] == "undecided":
-            s.note = "undecided here: falls through"
-            return None
-        if protected and kind != "file" and r["action"] == "remove":
-            s.note = "ignored: protected/intake folder (only a file decision can remove here)"
-            return None
-        s.used = True
-        return Effective(r["action"], kind, chain)
-
-    q = "SELECT * FROM decisions WHERE phase = ? AND root_id = ? AND path_key = ? AND target_kind = ?"
-    if sha256:
-        rows = [r for r in conn.execute(q, (PHASE, root_id, name_key(relpath), "file")) if r["sha256"] == sha256]
-        other = [r for r in conn.execute(q, (PHASE, root_id, name_key(relpath), "file")) if r["sha256"] != sha256]
-        for r in other:
-            chain.append(Step("file", relpath, r["action"], r["at"], r["machine_id"],
-                              note="ignored: made about different bytes"))
-        if (e := level("file", relpath, rows)):
-            return e
-    rows = [r for r in conn.execute(q, (PHASE, root_id, name_key(folder), "folder")) if r["scope"] == "folder"]
-    if (e := level("folder", folder, rows)):
-        return e
-    parts = folder.split("/") if folder else []
-    for n in range(len(parts), -1, -1):
-        anc = "/".join(parts[:n])
-        rows = [r for r in conn.execute(q, (PHASE, root_id, name_key(anc), "folder")) if r["scope"] == "subtree"]
-        if (e := level("subtree", anc, rows)):
-            return e
-    return Effective("undecided", None, chain)
+    return Resolver(conn, library).effective(root_id, relpath, sha256)
 
 
 def list_decisions(conn: sqlite3.Connection, target: str | None = None) -> list[sqlite3.Row]:

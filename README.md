@@ -14,7 +14,7 @@ Photo Haven is a tool for bringing order to a large family photo library that ha
 
 ## Status
 
-**M2 (report and decisions) done.** `photohaven init`, `scan`, `report`, `decisions`, `status`, `doctor` and `rebuild-db` work on test libraries; plan, apply and quarantine (M3–M4) come next. Not ready for the real library yet. The [format spec](docs/03-format-spec.md) is the contract every implementation must follow.
+**M3 (plan and apply) done.** `photohaven init`, `scan`, `report`, `decisions`, `plan`, `apply`, `verify`, `quarantine`, `tidy`, `status`, `doctor` and `rebuild-db` work on test libraries; restore and purge (M4) come next. Not ready for the real library yet. The [format spec](docs/03-format-spec.md) is the contract every implementation must follow.
 
 ```
 python -m pip install -e ".[dev]"
@@ -22,6 +22,8 @@ photohaven --state STATE init --project-home HOME --root pics=PATH --quarantine 
 photohaven --state STATE scan            # read-only for photos; writes hidden .photohaven-cache.*.jsonl files
 photohaven --state STATE report --open    # review in the browser, then Export
 photohaven --state STATE decisions import decisions-<report_id>.jsonl
+photohaven --state STATE plan             # dry run: what would move, what stays, and why
+photohaven --state STATE apply --execute  # moves exactly the plan you reviewed, then verifies
 photohaven --state STATE status
 python -m pytest                         # PHOTOHAVEN_DUPECASES=<corpus> adds the M0 acceptance run
 ```

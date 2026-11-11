@@ -90,5 +90,25 @@ def test_dupecases(tmp_path, exiftool_exe):
         before = sorted(tuple(r) for r in env.conn.execute("SELECT relpath, sha256, state FROM files"))
         app.rebuild_db(env)
         assert sorted(tuple(r) for r in env.conn.execute("SELECT relpath, sha256, state FROM files")) == before
+        # M3: accept every suggestion, plan, apply into a temp quarantine
+        from photohaven import decisions as dec
+        from photohaven.formats import Decision, Target
+        from photohaven.util import utc_now
+        an = analysis.analyze(env.conn, env.library)
+        ds = [Decision(utc_now(), "dedupe", Target("folder", f.root_id, f.relpath, scope="folder"), s.action, "cli")
+              for fid, f in an.folders.items() if f.files and (s := analysis.suggest(an, fid)).action != "undecided"
+              and not s.locked]
+        dec.append(env.conn, env.project_home, env.library.library_id, env.machine.machine_id, ds)
+        env.mcfg.quarantine_root = str(tmp_path / "quarantine")
+        hashes_before = {r[0] for r in env.conn.execute(
+            "SELECT DISTINCT sha256 FROM files WHERE state = 'present' AND sha256 IS NOT NULL")}
+        plan, _ = app.make_plan(env)
+        assert plan.items and not plan.conflicts
+        res = app.apply_execute(env)
+        assert res.moved == len(plan.items) and res.verified == res.moved and not res.verify_failed
+        hashes_after = {r[0] for r in env.conn.execute(
+            "SELECT DISTINCT sha256 FROM files WHERE state = 'present' AND sha256 IS NOT NULL")}
+        assert hashes_after == hashes_before                  # every content still in the library
+        assert not app.make_plan(env)[0].items
     finally:
         env.close()

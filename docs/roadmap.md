@@ -49,11 +49,13 @@ Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, a
 
 ## M3: Plan and apply
 
-- [ ] Decision resolution; keeper choice; last-copy enforcement; conflict and blocked reporting. (Pair-split warnings: R1.)
-- [ ] `plan` output and saved plans; `apply --execute` with plan-equality check, `--batch-limit`.
-- [ ] Move protocol (same-volume and cross-volume), manifest, quarantine log, journal, crash recovery.
-- [ ] Single-apply-machine enforcement.
-- [ ] Post-apply light rescan of affected folders; `tidy --empty-folders`.
+- [x] Decision resolution; keeper choice; last-copy enforcement; conflict and blocked reporting. (Pair-split warnings: R1.)
+- [x] `plan` output and saved plans; `apply --execute` with plan-equality check, `--batch-limit`.
+- [x] Move protocol (same-volume and cross-volume), manifest, quarantine log, journal, crash recovery.
+- [x] Single-apply-machine enforcement.
+- [x] Post-apply light rescan of affected folders; `tidy --empty-folders`.
+
+**Status (2026-11-11):** done. Safety tests I-1 to I-4 and every crash point and recovery row of 10 §4 pass, on both the same-volume (rename) and cross-volume (copy) protocols; the M0 corpus runs end to end (accept every suggestion, plan, apply, verify, nothing left to plan, every content still in the library). `verify` is in already, because apply runs it. I-5 (purge) and I-6 (restore from the manifest) belong to M4, as does making `rebuild-db` ingest the quarantine logs.
 
 **Done when:** every safety test in [10 §3](10-testing.md#3-safety-tests-required-one-per-invariant) and every crash-injection case in [10 §4](10-testing.md#4-crash-injection) passes.
 
