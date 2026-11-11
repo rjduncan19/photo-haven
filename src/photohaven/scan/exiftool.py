@@ -31,10 +31,22 @@ class ExifToolError(Exception):
     pass
 
 
+def safe_arg_path(p: str) -> bool:
+    """Paths go to ExifTool one per line through its -@ argument file, which
+    trims surrounding whitespace. A path with a line break or surrounding
+    whitespace could be read as extra arguments (or a different file), so it
+    is never sent. (NTFS forbids CR/LF in names; other filesystems don't.)"""
+    return "\n" not in p and "\r" not in p and p == p.strip() and not p.startswith("-")
+
+
 def find_exiftool(configured: str | None) -> str | None:
+    # search PATH only: on Windows a bare which() also looks in the current
+    # folder first, and that could be a photo folder
+    search = os.environ.get("PATH", "")
     if configured:
-        return configured if os.path.exists(configured) else shutil.which(configured)
-    found = shutil.which("exiftool")
+        return configured if os.path.isabs(configured) and os.path.exists(configured) else \
+            shutil.which(configured, path=search)
+    found = shutil.which("exiftool", path=search)
     if found:
         return found
     if IS_WINDOWS:
@@ -71,12 +83,18 @@ class ExifTool:
     def _run(self, args: list[str]) -> str:
         return self._run_bytes(args).decode("utf-8", errors="replace")
 
+    @staticmethod
+    def _payload(args: list[str], n: int) -> str:
+        """Exactly what is written to ExifTool's -@ argument stream, one
+        argument per line (tests inspect this)."""
+        extra = ["-api", "WindowsLongPath=1"] if IS_WINDOWS else []
+        return "\n".join(["-charset", "filename=utf8", *extra, *args, f"-execute{n}", ""])
+
     def _run_bytes(self, args: list[str]) -> bytes:
         with self._lock:
             self._n += 1
             n = self._n
-            extra = ["-api", "WindowsLongPath=1"] if IS_WINDOWS else []
-            payload = "\n".join(["-charset", "filename=utf8", *extra, *args, f"-execute{n}", ""])
+            payload = self._payload(args, n)
             if self.proc.poll() is not None:
                 raise ExifToolError("ExifTool is not running")
             assert self.proc.stdin and self.proc.stdout
@@ -100,6 +118,10 @@ class ExifTool:
         if not paths:
             return []
         plain = [os.path.abspath(plain_path(p)) for p in paths]
+        if not all(safe_arg_path(p) for p in plain):
+            if len(plain) == 1:
+                return [None]           # reported as exiftool_error; the file is still hashed
+            return [self.describe([p])[0] for p in paths]
         out = self._run([*BASE_ARGS, *TAGS, *plain])
         try:
             arr = json.loads(out) if out.strip() else []
@@ -122,6 +144,8 @@ class ExifTool:
         """The embedded JPEG thumbnail (or raw preview) for report thumbnails
         (07 §1). No decoding: bytes as stored in the file."""
         p = os.path.abspath(plain_path(path))
+        if not safe_arg_path(p):
+            return None
         for tag in ("-ThumbnailImage", "-PreviewImage"):
             data = self._run_bytes(["-b", tag, p])
             if data[:2] == bytes((0xFF, 0xD8)):

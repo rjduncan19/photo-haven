@@ -51,6 +51,10 @@ def open_env(state_dir: pathlib.Path | None = None, *, lock: bool = True) -> Env
                               "(or 'photohaven machine reset')")
         machine.name = mcfg.name or machine.name
         home = pathlib.Path(mcfg.project_home)
+        for rid, p in mcfg.roots.items():
+            if is_inside(state_dir, p) or is_inside(p, state_dir):
+                raise ConfigError(f"the local state folder {state_dir} overlaps the library root {p}; it must be "
+                                  "outside every root (set --state or PHOTOHAVEN_STATE)")
         library = Library.load(home)
         settings = LibrarySettings.load(home)
         conn = db.connect(state_dir / DB_NAME)
@@ -104,6 +108,9 @@ def init(state_dir: pathlib.Path, project_home: pathlib.Path, roots: list[tuple[
         if not p.is_dir():
             raise ConfigError(f"root {n}: {p} is not a folder")
     _check_placement(project_home, roots, quarantine)
+    for n, p in roots:
+        if is_inside(state_dir, p) or is_inside(p, state_dir):
+            raise ConfigError(f"the local state folder {state_dir} overlaps root {n} ({p})")
     state_dir.mkdir(parents=True, exist_ok=True)
     project_home.mkdir(parents=True, exist_ok=True)
     joining = (project_home / LIBRARY_JSON).exists()
@@ -175,7 +182,8 @@ def root_add(env: Env, name: str, path: pathlib.Path, *, intake: bool = False, k
         raise ConfigError(f"there is already a root named {name}")
     _check_placement(env.project_home, [(name, path)], env.mcfg.quarantine_root)
     r = RootInfo(uuid4(), name, kind or _root_kind(path), [""] if intake else [])
-    _write_marker(env.library, r, path)
+    if env.mcfg.cache_placement != "local_only":     # read-only setups write nothing into roots
+        _write_marker(env.library, r, path)
     env.library.roots.append(r)
     env.library.save(env.project_home)
     env.mcfg.roots[r.root_id] = str(path)
