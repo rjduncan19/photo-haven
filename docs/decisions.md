@@ -72,7 +72,14 @@ Decision and quarantine logs live in `<project home>/logs/`, one file per machin
 
 ### D-10: Quarantine location
 
-*Source: handoff; reopened 2026-11-09. Status: **open** pending spike C4.*
+*Source: handoff; reopened 2026-11-09. Status: **decided 2026-11-11** (Rick), after spike C4.*
+
+**Decision:** moved duplicates go to a folder named **`PhotoHaven-DELETE`** at the top of each library root, so inside OneDrive. Spike C4 showed that a move inside OneDrive is a true server-side move: no upload, nothing in the recycle bin, version history kept ([m0-results C](spikes/m0-results.md#c-onedrive)). Moving out of OneDrive, by contrast, made OneDrive ask whether to delete the 200 files and put them all in its recycle bin, and moving them back re-uploaded everything (C5).
+
+- **The name.** "Quarantine" suggests malware, so the folder and everything the user sees say *DELETE folder*. The spec's record and file names (`quarantine-log`, `qpath`, `quarantine_root`, `quarantine_items`) stay as they are: they are binding format names in spec v1, and nobody browses them.
+- **Inside the root, reserved.** The folder is reserved at the top of every root: the scanner never walks it, `tidy` never touches it. Moves into it are always same-volume renames. A `README - PhotoHaven.txt` in it explains what it is.
+- **The user may empty it by hand** to free space. "Better safe than sorry" is the point of keeping it in OneDrive until then. `verify` notices files deleted by hand and logs them as `purged` with detail `deleted outside Photo Haven`. `photohaven purge` remains the checked way to delete (byte compare against the kept copy first).
+- **Override.** `machine.toml` `quarantine_root` can still name one folder outside every root (the original "local" mode); `doctor` reports it.
 
 The handoff put the quarantine on local disk outside OneDrive, because a quarantine inside OneDrive frees no cloud space until purge. Rick prefers a quarantine **inside OneDrive** (outside every root), which works only if the OneDrive client syncs a local move within the same OneDrive as a server-side move rather than a delete plus re-upload. Reports about cut-and-paste between *separately synced SharePoint libraries* say the client doesn't treat that as a move. Moves within one OneDrive are untested, so spike C4 measures it.
 
@@ -86,7 +93,7 @@ The handoff put the quarantine on local disk outside OneDrive, because a quarant
 | Stays in OneDrive Photos / People views | Probably, until purged | No |
 | Single apply machine (D-17) | Still useful against the sync-lag race, but the race can no longer strand a quarantine on one machine's disk | Required |
 
-Both modes share the batch layout and manifests ([08 §10](08-apply-quarantine-verify.md#10-quarantine-location)). Decide after spike C4.
+Both modes share the batch layout and manifests ([08 §10](08-apply-quarantine-verify.md#10-quarantine-location)).
 
 ### D-11: A library has multiple roots; paths are (root_id, relpath)
 

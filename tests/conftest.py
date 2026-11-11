@@ -52,8 +52,8 @@ def lib(tmp_path):
     """An empty library: one root, project home, state for machine 'alpha'."""
     root = tmp_path / "Pictures"
     root.mkdir()
-    env, _ = app.init(tmp_path / "state-a", tmp_path / "home", [("pics", root)], quarantine=str(tmp_path / "q"),
-                      library_name="test", machine_name="alpha")
+    env, _ = app.init(tmp_path / "state-a", tmp_path / "home", [("pics", root)], library_name="test",
+                      machine_name="alpha")
     yield env, root, tmp_path
     try:
         env.close()

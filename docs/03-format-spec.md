@@ -67,7 +67,7 @@ Year/month organization (phase 2) uses `taken_local`, because a photo taken at 1
 - `relpath` uses `/` separators, has no leading or trailing `/`, contains no empty, `.`, or `..` components, and preserves the case and Unicode form the filesystem returned. The root folder itself has `relpath` `""`.
 - **`path_key`** = `casefold(NFC(relpath))`. It is used for lookups and for matching decisions to paths, never for display or filesystem calls. (Windows is case-insensitive; macOS-originated exports may arrive NFD.)
 - **`path_key` is not unique.** NTFS stores names as given, so `Café.jpg` in NFC and in NFD form can sit side by side in one folder as two files with the same `path_key` (seen in M0, [m0-results](spikes/m0-results.md#duplicate-case-corpus-make_dupe_corpuspy)). Uniqueness is on the raw `(root_id, relpath)`. Where a lookup by `path_key` finds more than one instance, each is flagged `path_key_collision`. A file-level decision still applies only to the instance whose `sha256` matches; a folder-level decision applies to every colliding folder, and the report lists them.
-- Quarantine paths are relative to the machine's quarantine root and follow the same rules.
+- Quarantine paths are relative to the quarantine root and follow the same rules. The quarantine root is each library root's reserved **`PhotoHaven-DELETE`** folder unless `machine.toml` sets `quarantine_root` ([D-10](decisions.md#d-10-quarantine-location)). A folder of that name at the top of a root is never library content: scanners MUST NOT walk it.
 - Absolute local paths appear only in `machine.toml` and the local DB `roots.local_path`, never in synced files.
 
 ### 1.7 Identifiers
@@ -162,7 +162,7 @@ generic_patterns = ['^\d{3}[A-Z_]{5}$', '^\d{4}$', '^\d{2}$', '^(19|20)\d{2}[-_ 
 schema = 1
 name = "tomahawk"
 project_home = 'C:\Users\rick\OneDrive\PhotoHaven-data'
-quarantine_root = 'D:\PhotoHavenQuarantine'
+quarantine_root = 'D:\PhotoHavenQuarantine'   # optional override; default is <root>\PhotoHaven-DELETE per root
 exiftool = 'C:\Tools\exiftool\exiftool.exe'
 hash_threads = 4
 exiftool_processes = 2
@@ -351,6 +351,8 @@ Event record:
 The manifest makes a quarantine batch **self-describing**: `restore` works from the manifest alone even if the project home and DB are both lost.
 
 ### 6.3 Quarantine layout
+
+By default the quarantine root is `<library root>/PhotoHaven-DELETE/` (one per root, so a batch holds files from one root); with a `quarantine_root` override it is that folder. The batch layout is the same either way:
 
 ```
 <quarantine_root>/
@@ -680,4 +682,5 @@ HAVING COUNT(*) > 1;
 |---|---|---|
 | 1 (draft) | 2026-11-09 | Initial draft from the planning handoff. |
 | 1 | 2026-11-10 | Binding. From the M0 spikes: damage rules and `meta.damaged` / `meta.exiftool_messages` (§3.3, §8.1; `contents.damaged`, `contents.exiftool_messages`); `path_key` is not unique, so uniqueness moves to raw `(root_id, relpath)` (§1.6, §9); family-0 tag groups and unconfirmed Apple IDs (§3.3). Gaps closed while writing `spec/`: canonical rules for nulls, booleans and numbers (§1.1); cache records only for hashed or skipped files (§3.2); quarantine log header (§6.1); `library_id` in the export header (§5.3); `retired_at` in the machine registry (§2.4); fractional digits in `taken_local` (§1.4). |
+| 1 | 2026-11-11 | Clarification from spike C, no format change: the default quarantine root is a reserved `PhotoHaven-DELETE` folder at the top of each library root, which scanners skip; `quarantine_root` in `machine.toml` is an optional override (§1.6, §2.6, §6.3; D-10). |
 | 1 | 2026-11-10 | Clarifications from M1, no format change: `filename`/`mtime` capture-time sources are per instance and never appear in `meta` (§1.4, §3.3); `QuickTime:CreateDate` fills `taken_local` with UTC wall-clock time and no offset (§3.3). |

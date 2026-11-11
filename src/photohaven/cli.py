@@ -68,7 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("init", help="set up this machine; create or join a library")
     s.add_argument("--project-home", type=pathlib.Path, required=True)
     s.add_argument("--root", type=_root_arg, action="append", default=[], metavar="NAME=PATH")
-    s.add_argument("--quarantine", help="quarantine root (local, outside OneDrive)")
+    s.add_argument("--quarantine", help="override: one folder for moved duplicates instead of each root's "
+                   "PhotoHaven-DELETE (must be outside every root)")
     s.add_argument("--name", default="", help="library name (new libraries)")
     s.add_argument("--machine-name")
     s.add_argument("--exiftool", help="path to exiftool(.exe)")
@@ -127,16 +128,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("plan", help="dry run: what apply would move, and what stays")
     s.add_argument("--decisions", type=pathlib.Path, help="import this report export first")
     s.add_argument("--top", type=int, default=10)
-    s = sub.add_parser("apply", help="move planned duplicates into quarantine (dry run unless --execute)")
+    s = sub.add_parser("apply", help="move planned duplicates into PhotoHaven-DELETE (dry run unless --execute)")
     s.add_argument("--decisions", type=pathlib.Path, help="import this report export first")
     s.add_argument("--execute", action="store_true", help="carry out the last plan you reviewed")
     s.add_argument("--batch-limit", type=int, help="move at most N files this run")
     s.add_argument("--no-rescan", action="store_true", help="skip the light rescan after moving")
     s.add_argument("--top", type=int, default=10)
     s.add_argument("--quiet", action="store_true")
-    s = sub.add_parser("verify", help="re-hash quarantined files and check keepers")
+    s = sub.add_parser("verify", help="re-hash moved files and check their kept copies")
     s.add_argument("--batch")
-    s = sub.add_parser("quarantine", help="quarantine batches")
+    s = sub.add_parser("batches", aliases=["quarantine"], help="batches of moved duplicates (PhotoHaven-DELETE)")
     qs = s.add_subparsers(dest="sub", required=True)
     qs.add_parser("list")
     q = qs.add_parser("show")
@@ -245,7 +246,7 @@ def _dispatch(args) -> int:
             for p, why in failed:
                 print(f"  FAILED {p}: {why}")
             return 1 if failed else 0
-        elif args.cmd == "quarantine":
+        elif args.cmd in ("batches", "quarantine"):
             return _quarantine(env, args)
         elif args.cmd == "tidy":
             from .apply import tidy
@@ -334,7 +335,6 @@ def _decisions(env, args) -> int:
 
 
 def _print_plan(env, p, listing, top: int) -> None:
-    import shutil
     from . import plan as planner
     roots = {r.root_id: r.name for r in env.library.roots}
     machines = {r[0]: r[1] for r in env.conn.execute("SELECT machine_id, name FROM machines")}
@@ -344,16 +344,15 @@ def _print_plan(env, p, listing, top: int) -> None:
     extra = "".join(f" incl. {n} from {machines.get(m, m[:8])}" for m, n in others)
     print(f"Plan {p.plan_id} (from scan {p.scan_id}, decisions through {newest or 'none'}{extra})")
     print()
-    print(f"  Will move to quarantine:   {len(p.items):,} files   {_human(p.bytes)}")
-    q = env.mcfg.quarantine_root
-    if q and p.items:
-        same = all(planner.same_volume(env.mcfg.roots[i.root_id], q) for i in p.items[:50])
-        try:
-            free_s = f", {_human(shutil.disk_usage(q).free)} free"
-        except OSError:
-            free_s = ""
-        how = "same volume: instant moves" if same else "cross-volume copy; needs " + _human(p.bytes)
-        print(f"  Quarantine:                {q}   ({how}{free_s})")
+    print(f"  Will move to DELETE folder: {len(p.items):,} files   {_human(p.bytes)}")
+    if p.items:
+        qs = {}
+        for i in p.items:
+            q = planner.holding_root(env.mcfg.roots[i.root_id], env.mcfg.quarantine_root or None)
+            qs.setdefault(str(q), planner.same_volume(env.mcfg.roots[i.root_id], q))
+        for q, same in qs.items():
+            how = "same drive: instant moves" if same else "another drive: copy, verify, then remove"
+            print(f"  Moved to:                  {q}   ({how})")
     print(f"  Kept (undecided/keep):     {p.kept:,} duplicate instances left in place by your decisions")
     print(f"  Blocked (last copy):       {len(p.blocked):,} files in remove folders have no other copy and stay")
     print(f"  Conflicts:                 {len(p.conflicts):,} groups where every copy was marked remove; kept one of each")
@@ -378,7 +377,8 @@ def _print_apply(res) -> None:
     if res.batch_id is None:
         print("nothing to move")
         return
-    print(f"batch {res.batch_id}: moved {res.moved} files ({_human(res.moved_bytes)}); verified {res.verified}"
+    print(f"batch {', '.join(res.batch_ids)}: moved {res.moved} files ({_human(res.moved_bytes)}) to "
+          f"PhotoHaven-DELETE; verified {res.verified}"
           + (f"; {res.remaining} left for later runs" if res.remaining else ""))
     for p, why in res.skipped:
         print(f"  skipped {p}: {why}")
@@ -432,7 +432,7 @@ def _print_status(st: dict) -> None:
     print(f"  same image, different bytes: {c['groups']} groups ({c['contents']} contents), report only")
     print(f"  not yet hashed: {st['pending_hash']}")
     if st.get("quarantine"):
-        print("  quarantine: " + ", ".join(f"{k} {v['files']} ({_human(v['bytes'])})"
+        print("  moved to DELETE folders: " + ", ".join(f"{k} {v['files']} ({_human(v['bytes'])})"
                                           for k, v in sorted(st["quarantine"].items())))
     if st["flags"]:
         print("  flags: " + ", ".join(f"{k} {v}" for k, v in sorted(st["flags"].items())))

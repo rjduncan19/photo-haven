@@ -25,7 +25,7 @@ Stages run as a pipeline per folder batch rather than strictly one after another
 ## Stage 1: discover
 
 - Iterative walk with `os.scandir`, folders sorted by `path_key` for deterministic order and readable progress.
-- **Skip:** Photo Haven's own files (`.photohaven-*`), names matching `library.toml [scan] ignore_names`, the project home and quarantine root if they were mistakenly placed inside a root (and `doctor` complains), and reparse points (junctions, symlinks), which are recorded but not followed. That avoids cycles and double counting.
+- **Skip:** the reserved `PhotoHaven-DELETE` folder at the top of each root (moved duplicates, D-10), Photo Haven's own files (`.photohaven-*`), names matching `library.toml [scan] ignore_names`, the project home and quarantine root if they were mistakenly placed inside a root (and `doctor` complains), and reparse points (junctions, symlinks), which are recorded but not followed. That avoids cycles and double counting.
 - **Classify** each file by lowercase extension into `image`, `raw`, `video`, `sidecar`, `other`. `other` files are recorded (so a folder's "is it fully redundant" answer accounts for them) but not hashed by default. A folder with a stray `.pdf` is not fully redundant.
 - Record folder rows with depth, levels, `is_generic`, `event_guess` (see [05 §7](05-file-relationships.md#7-folder-names-and-event-guesses)), `is_intake`, and `is_protected` from `library.json`.
 

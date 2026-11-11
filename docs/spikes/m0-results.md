@@ -101,11 +101,11 @@ Run 2026-11-11 on tomahawk (personal OneDrive, M365; Windows 11; one internal dr
 | C1. Create and sync | 200 MB uploaded in about 90 s (211 MB on the wire). Locally the dotfile stays hidden; no placeholders (the library is kept on the device). |
 | Dotfiles | **Synced.** `.photohaven-cache.probe.jsonl` shows on OneDrive on the web. So in-folder cache files reach other machines (06 §2). Whether they stay hidden there is C2. |
 | C4. Move inside OneDrive (`PH-probe-area` → `PH-quarantine-test\q1`) | **A true server-side move.** 1.2 MB uploaded in 4 minutes against about 3.6 MB of background traffic over the same time. On the web, nothing in the Recycle bin, and a moved file still has a single version 1.0 (checked by Rick). Moving back was the same: 1.2 MB. |
-| C5. Move out of OneDrive (to `C:\PH-test\quarantine-out`) | Nothing uploaded, as expected for a delete. Moving the files back in re-uploaded **209 MB**, a full re-upload. Still to note: any OneDrive notice about the deletion, and whether the 200 files are now in the web Recycle bin. |
+| C5. Move out of OneDrive (to `C:\PH-test\quarantine-out`) | Nothing uploaded, as expected for a delete. Moving the files back in re-uploaded **209 MB**, a full re-upload. OneDrive showed a notice asking whether to delete the 200 files, and all 200 went to the web Recycle bin (checked by Rick). |
 
 **What this settles:**
 
-- **Q-2 / D-10 (quarantine location): inside OneDrive works the way the design hoped.** An apply that moves duplicates to a quarantine folder inside OneDrive (outside every root) is a set of server-side moves: no upload, no recycle-bin churn, and the quarantine is visible to every machine. Cloud space is freed only at purge, when the deletes go through OneDrive's recycle bin. Recommendation: `onedrive` quarantine mode, quarantine at `<OneDrive>\PhotoHaven-quarantine\`. Rick decides.
+- **Q-2 / D-10 (quarantine location): decided, inside OneDrive.** An apply that moves duplicates to a folder inside OneDrive is a set of server-side moves: no upload, no recycle-bin churn, and the folder is visible to every machine. Cloud space is freed only when it is emptied. Rick chose a `PhotoHaven-DELETE` folder at the top of each root ([D-10](../decisions.md#d-10-quarantine-location)).
 - **On this machine, both modes are same-volume renames.** tomahawk has a single drive, so a local quarantine outside OneDrive (C:\PhotoHavenQuarantine) would also be an instant rename. The difference is only what OneDrive does: a delete (cloud space freed, files in the recycle bin, a full re-upload if restored), or a move.
 - **Restore cost.** With a quarantine outside OneDrive, every restore is a full re-upload (C5's move back). Inside OneDrive, a restore is another server-side move.
 

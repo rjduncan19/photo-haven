@@ -18,7 +18,7 @@
                 ┌──────────────────────── local to each machine (not synced) ─────────┐
   Local state   │  %LOCALAPPDATA%\PhotoHaven\                                          │
                 │    machine.json  machine.toml  photohaven.db  thumbs\  logs\  lock   │
-  Quarantine    │  D:\PhotoHavenQuarantine\<batch_id>\<root_id>\<relpath>              │
+  DELETE folder │  <root>\PhotoHaven-DELETE\<batch_id>\files\<root_id>\<relpath>  (in OneDrive) │
                 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,7 +31,7 @@ The **SQLite database is a derived index**, never the only copy of anything impo
 | **Library roots** | Yes (OneDrive) | Photos; per-folder cache files; root marker | Scanner (cache files and root marker only); apply (moves out to quarantine); restore (moves back) |
 | **Project home** | Yes, but outside every root | `library.json` (identity, roots), `library.toml` (shared settings), per-machine logs, machine registry | `init`, report import, apply, verify, purge |
 | **Local state** | No | Machine identity, machine config (root paths, quarantine path, ExifTool path), SQLite DB, thumbnails, app logs, process lock | Every command |
-| **Quarantine** | No, and must be outside OneDrive | Moved instances, per-batch manifests | apply, restore, purge |
+| **DELETE folder** ("quarantine" in the spec) | Yes: `PhotoHaven-DELETE` at the top of each root, reserved and never scanned ([D-10](decisions.md#d-10-quarantine-location)) | Moved instances, per-batch manifests | apply, restore, purge |
 
 **Refinement:** the handoff said decision logs are append-only but didn't say where they live. They go in the *project home*, one file per machine, so decisions made on one machine are visible on another without OneDrive ever merging edits to one file. The database stays on local disk because SQLite files in a synced folder risk corruption and conflict copies ([D-07](decisions.md#d-07-the-sqlite-database-lives-on-local-disk-never-in-a-synced-folder)).
 
@@ -96,7 +96,7 @@ photohaven decisions import FILE | list [--target PATH] | show-effective PATH
 photohaven plan [--decisions FILE]        # dry run: what would move, space saved, blocked items
 photohaven apply [--decisions FILE] [--execute] [--batch-limit N]
 photohaven verify [--batch ID]
-photohaven quarantine list | show BATCH
+photohaven batches list | show BATCH        # alias: quarantine
 photohaven restore --batch ID [--path RELPATH]
 photohaven purge --batch ID [--execute] [--min-age DAYS]
 photohaven tidy --empty-folders [--execute]   # folders holding only Photo Haven cache files
