@@ -69,6 +69,9 @@ class ExifTool:
             raise ExifToolError(f"ExifTool {self.version} is too old; need {'.'.join(map(str, MIN_VERSION))}+")
 
     def _run(self, args: list[str]) -> str:
+        return self._run_bytes(args).decode("utf-8", errors="replace")
+
+    def _run_bytes(self, args: list[str]) -> bytes:
         with self._lock:
             self._n += 1
             n = self._n
@@ -89,7 +92,7 @@ class ExifTool:
                 buf += chunk
                 i = buf.find(sentinel, max(0, len(buf) - len(chunk) - len(sentinel)))
                 if i != -1:
-                    return bytes(buf[:i]).decode("utf-8", errors="replace")
+                    return bytes(buf[:i])
 
     def describe(self, paths: list[str]) -> list[dict | None]:
         """Raw ExifTool JSON for each path (in order); None where ExifTool
@@ -114,6 +117,16 @@ class ExifTool:
         elif len(paths) == 1 and results[0] is None and len(arr) == 1:
             results = [arr[0]]
         return results
+
+    def embedded_preview(self, path: str) -> bytes | None:
+        """The embedded JPEG thumbnail (or raw preview) for report thumbnails
+        (07 §1). No decoding: bytes as stored in the file."""
+        p = os.path.abspath(plain_path(path))
+        for tag in ("-ThumbnailImage", "-PreviewImage"):
+            data = self._run_bytes(["-b", tag, p])
+            if data[:2] == bytes((0xFF, 0xD8)):
+                return data
+        return None
 
     def close(self) -> None:
         if self.proc.poll() is None:

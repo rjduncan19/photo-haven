@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Haven report</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <div class="title">
+    <h1>Photo Haven</h1>
+    <span id="subtitle"></span>
+  </div>
+  <div class="actions">
+    <span id="count">0 decisions</span>
+    <button id="export" class="primary" title="Download decisions-&lt;report&gt;.jsonl, then run: photohaven decisions import FILE">Export decisions</button>
+    <button id="clear" title="Forget every decision made in this report">Clear</button>
+  </div>
+</header>
+<nav id="nav"></nav>
+<main id="main"><p>Loading…</p></main>
+<div id="detail" class="detail hidden" role="dialog" aria-modal="true">
+  <div class="detail-inner">
+    <div class="detail-head"><h2 id="detail-title"></h2><button id="detail-close" aria-label="Close">✕</button></div>
+    <div id="detail-body"></div>
+  </div>
+</div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

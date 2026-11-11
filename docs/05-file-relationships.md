@@ -94,7 +94,7 @@ Folder names are the best event information the library has. Each folder gets a 
 2. Strip trailing copy markers: ` (1)`, ` - Copy`, ` copy 2`.
 3. Strip IMG-style junk tokens (`IMG`, `DSC`, `DCIM`) and bare sequence numbers.
 4. Replace `_` and runs of separators with single spaces; trim.
-5. If what's left is empty or generic, `event_guess = null`.
+5. If what's left is empty or generic, `event_guess = null`. Years are kept (`Christmas 2012`), but a name that is only generic words plus dates and parentheticals is generic: `Backup 2019`, `Backup 2026 (phone)`, `My Pictures`, `Imported 2021-03-15`. Generic words are the words of `generic_names` plus a short filler list pinned in `photohaven.link` (`my`, `old`, `phone`, `imported`, …).
 
 | Folder name | `event_guess` |
 |---|---|

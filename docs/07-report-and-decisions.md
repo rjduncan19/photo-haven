@@ -26,6 +26,8 @@ For folder *F* (files directly in it, `present` only):
 
 Also computed per **subtree** (F and all descendants), since "Backup 2019" is usually a tree.
 
+**Refinement (M2):** "duplicate" here means *a copy outside this folder* (outside the subtree, for subtree stats). Copies that exist only inside one folder (`IMG_1 - Copy.jpg` next to `IMG_1.jpg`) don't make the folder removable as a whole, since one of them must stay; they are counted as `internal` and listed in their own section with file-level suggestions. A folder's `reclaimable_bytes` is its outside-copy bytes plus those internal extras. Non-photo files (`other` media) count as unhashed, so they block `redundant`; the suggestion says so ("a remove decision moves only the duplicates").
+
 For folder **pairs** *(A, B)* sharing at least one content, via an inverted index `sha256 → folders` (only groups with instances in ≥ 2 folders are touched, so this stays cheap):
 
 | Stat | Definition |
@@ -65,6 +67,15 @@ Every row comes pre-filled with a suggestion and a one-line reason. **Suggestion
 | Unique files only | `keep` | — |
 
 The descriptive-name comparison uses the rules in [05 §7](05-file-relationships.md#7-folder-names-and-event-guesses). The suggestion engine is a pure function of DB state, unit-tested against a table of scenarios.
+
+**Refinements (M2), from the M0 corpus:**
+
+- **Path descriptiveness.** Names are compared by the most descriptive name on the folder's path, then its own: `Pictures/iPhone/2026-10` is described by `iPhone`, so it beats `Backup 2026 (phone)` even though `2026-10` itself is generic.
+- **A descriptive folder contained in a less descriptive one is kept** ("every file is also in B, but this folder's name says more"). `Hawaii trip` inside a big `Backup 2019` should not be the copy that goes.
+- **Easiest wins lists only folders suggested for removal.** Contained folders suggested for keeping stay in the tree.
+- **Redundant trees.** A subtree removal is suggested only when every folder with files in the tree would itself be suggested for removal, so folder and tree suggestions never disagree; only the top-most such tree is listed.
+- **Coherence.** After the per-folder rules, if every folder holding some content is suggested for removal, the best-ranked of them is suggested for keeping instead. Accepting every suggestion therefore never asks to remove every copy. The planner enforces the last-copy invariant anyway ([08 §2](08-apply-quarantine-verify.md#2-choosing-keepers)); this keeps the suggestions honest.
+- **Accept suggestions** per section turns the shown suggestions into decisions in one click; nothing is exported until the human clicks Export.
 
 ## 5. Resolving effective decisions
 
