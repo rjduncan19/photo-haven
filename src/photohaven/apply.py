@@ -394,12 +394,14 @@ class Applier:
         return n
 
     # --------------------------------------------------------------- verify
-    def verify(self, batch_id: str | None = None) -> tuple[int, list[tuple[str, str]]]:
-        """08 §6: every quarantined file re-hashes to its sha256, and every
-        keeper still exists with the size and mtime it had at plan time."""
+    def verify(self, batch_id: str | None = None, *, deep: bool = False) -> tuple[int, list[tuple[str, str]]]:
+        """08 §6: every moved file re-hashes to its sha256, and every keeper
+        still exists with the size and mtime it had at plan time. `deep`
+        also re-hashes the keepers, and re-checks items verified before."""
         self.note_hand_deleted(batch_id)
+        states = "('moved', 'verified', 'verify_failed')" if deep else "('moved')"
         q = ("SELECT q.*, b.quarantine_root FROM quarantine_items q JOIN batches b USING(batch_id) "
-             "WHERE q.state = 'moved'" + (" AND q.batch_id = ?" if batch_id else ""))
+             f"WHERE q.state IN {states}" + (" AND q.batch_id = ?" if batch_id else ""))
         rows = self.conn.execute(q, (batch_id,) if batch_id else ()).fetchall()
         ok, failed = 0, []
         for r in rows:
@@ -413,9 +415,12 @@ class Applier:
                 k = self.conn.execute("SELECT size, mtime_us FROM files WHERE root_id = ? AND relpath = ?",
                                       (r["keeper_root_id"], r["keeper_relpath"])).fetchone()
                 try:
-                    kst = os.stat(self.abs_path(r["keeper_root_id"], r["keeper_relpath"]))
+                    kpath = self.abs_path(r["keeper_root_id"], r["keeper_relpath"])
+                    kst = os.stat(kpath)
                     if k is None or kst.st_size != k["size"] or stat_mtime_us(kst) != k["mtime_us"]:
                         detail = "keeper changed since the plan"
+                    elif deep and _sha256(kpath) != (r["sha256"], r["size"]):
+                        detail = "keeper no longer has the same bytes"
                 except FileNotFoundError:
                     detail = "keeper is missing"
             event = "verify_failed" if detail else "verified"
@@ -436,6 +441,134 @@ class Applier:
             if not bad:
                 self.conn.execute("UPDATE batches SET state = 'verified' WHERE batch_id = ?", (b,))
         return ok, failed
+
+
+# ------------------------------------------------------------------ purge
+
+@dataclasses.dataclass
+class PurgeResult:
+    batch_id: str
+    executed: bool
+    deleted: list[tuple[str, int]] = dataclasses.field(default_factory=list)       # (path, size)
+    would_delete: list[tuple[str, int]] = dataclasses.field(default_factory=list)
+    refused: list[tuple[str, str]] = dataclasses.field(default_factory=list)       # (path, why)
+    cloud_keepers: int = 0
+
+    @property
+    def bytes(self) -> int:
+        return sum(s for _, s in (self.deleted or self.would_delete))
+
+
+def same_bytes(a: str, b: str) -> bool:
+    """08 §7 step 2: stream both files and compare every byte. Raises OSError
+    if either can't be read (which refuses the purge)."""
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        while True:
+            x, y = fa.read(CHUNK), fb.read(CHUNK)
+            if x != y:
+                return False
+            if not x:
+                return True
+
+
+def _purge_file(path: str) -> None:
+    """The only removal of a photo anywhere in Photo Haven (08 §7 step 3):
+    a file in a DELETE folder that was just compared byte for byte with a
+    readable kept copy."""
+    try:
+        os.remove(path)
+    except PermissionError:
+        os.chmod(path, stat_mod.S_IWRITE)
+        os.remove(path)
+
+
+def purge(applier: "Applier", batch_id: str, *, execute: bool, min_age_days: float = 14) -> PurgeResult:
+    import datetime
+    from .util import parse_ts
+    a = applier
+    a.check_machine()
+    b = a.conn.execute("SELECT * FROM batches WHERE batch_id = ?", (batch_id,)).fetchone()
+    if b is None:
+        raise ApplyError(f"no batch {batch_id} on this machine ('photohaven batches list')")
+    a.note_hand_deleted(batch_id)
+    rows = a.conn.execute("SELECT * FROM quarantine_items WHERE batch_id = ? ORDER BY relpath", (batch_id,)).fetchall()
+    open_states = [r for r in rows if r["state"] not in ("verified", "purged", "purge_refused", "restored")]
+    if open_states:
+        raise ApplyError(f"batch {batch_id} has {len(open_states)} item(s) that are not verified "
+                         f"(e.g. {open_states[0]['relpath']}: {open_states[0]['state']}); run 'photohaven verify' first")
+    age = datetime.datetime.now(datetime.timezone.utc) - parse_ts(b["created_at"])
+    if age < datetime.timedelta(days=min_age_days):
+        days = age.total_seconds() / 86400
+        raise ApplyError(f"batch {batch_id} is {days:.1f} days old; the hold period is {min_age_days:g} days "
+                         f"(--min-age to change it)")
+    res = PurgeResult(batch_id, execute)
+    out = quarantine.out_of_library(quarantine.read_all(a.env.project_home, a.library.library_id)[0])
+    for r in rows:
+        if r["state"] not in ("verified", "purge_refused"):
+            continue
+        qfile = a.qpath_abs(b["quarantine_root"], r["qpath"])
+        why = None
+        try:
+            keeper = a.abs_path(r["keeper_root_id"], r["keeper_relpath"])
+        except ApplyError as e:
+            keeper, why = None, str(e)
+        if why is None:
+            if not os.path.exists(keeper):
+                why = "the kept copy is missing"
+            elif r["sha256"] in out.get((r["keeper_root_id"], name_key(r["keeper_relpath"])), set()):
+                why = "the kept copy is listed as moved in a quarantine log"
+            elif not os.path.exists(qfile):
+                why = "the file is no longer in the DELETE folder"
+            else:
+                try:
+                    if is_placeholder(os.stat(keeper)):
+                        res.cloud_keepers += 1          # comparing will download it
+                    if not same_bytes(qfile, keeper):
+                        why = "the kept copy no longer has the same bytes"
+                except OSError as e:
+                    why = f"could not read for the compare ({e.strerror or e})"
+        if why:
+            res.refused.append((r["relpath"], why))
+            if execute:
+                ev = a.journal.new_event(batch_id=batch_id, event="purge_refused", root_id=r["root_id"],
+                                         path=r["relpath"], sha256=r["sha256"], size=r["size"],
+                                         keeper_root_id=r["keeper_root_id"], keeper_path=r["keeper_relpath"],
+                                         qpath=r["qpath"], detail=why)
+                a.journal.append(ev)
+                a.conn.execute("UPDATE quarantine_items SET state = 'purge_refused', last_error = ? WHERE batch_id = ? "
+                               "AND root_id = ? AND relpath = ?", (why, batch_id, r["root_id"], r["relpath"]))
+            continue
+        if not execute:
+            res.would_delete.append((r["relpath"], r["size"]))
+            continue
+        _purge_file(qfile)
+        ev = a.journal.new_event(batch_id=batch_id, event="purged", root_id=r["root_id"], path=r["relpath"],
+                                 sha256=r["sha256"], size=r["size"], keeper_root_id=r["keeper_root_id"],
+                                 keeper_path=r["keeper_relpath"], qpath=r["qpath"])
+        a.journal.append(ev)
+        a.conn.execute("UPDATE quarantine_items SET state = 'purged', purged_at = ?, last_error = NULL WHERE "
+                       "batch_id = ? AND root_id = ? AND relpath = ?", (ev.at, batch_id, r["root_id"], r["relpath"]))
+        a.conn.execute("UPDATE files SET state = 'purged' WHERE root_id = ? AND relpath = ? AND state = 'quarantined'",
+                       (r["root_id"], r["relpath"]))
+        res.deleted.append((r["relpath"], r["size"]))
+    if execute:
+        left = a.conn.execute("SELECT count(*) FROM quarantine_items WHERE batch_id = ? AND state NOT IN "
+                              "('purged', 'restored')", (batch_id,)).fetchone()[0]
+        a.conn.execute("UPDATE batches SET state = ? WHERE batch_id = ?",
+                       ("purged" if not left else "partially_purged", batch_id))
+        _remove_empty_dirs(pathlib.Path(b["quarantine_root"]) / batch_id / "files")
+    return res
+
+
+def _remove_empty_dirs(top: pathlib.Path) -> None:
+    """Empty folders left inside a batch's files/ tree (Photo Haven's own).
+    The manifest is kept as a permanent record (08 §7)."""
+    t = long_path(top)
+    if not os.path.isdir(t):
+        return
+    for dirpath, dirnames, filenames in os.walk(t, topdown=False):
+        if not filenames and not os.listdir(dirpath):
+            os.rmdir(dirpath)
 
 
 # ------------------------------------------------------------------- tidy

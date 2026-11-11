@@ -61,10 +61,13 @@ Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, a
 
 ## M4: Verify, purge, restore
 
-- [ ] `verify` (auto after apply; `--deep`).
-- [ ] `purge` with hold period, byte compare, refusals, dry run.
-- [ ] `restore` from manifest, including with DB and project home gone.
-- [ ] `quarantine list/show`; DB backup before apply and purge.
+- [x] `verify` (auto after apply; `--deep`).
+- [x] `purge` with hold period, byte compare, refusals, dry run.
+- [x] `restore` from manifest, including with DB and project home gone.
+- [x] `batches list/show` (was `quarantine list/show`); DB backup before apply and purge.
+- [x] `rebuild-db` rebuilds batches and items from this machine's quarantine log and manifests (06 §6 step 5).
+
+**Status (2026-11-11):** done. The full flow (init, scan, report, simulated export, plan, apply in two rounds, verify `--deep`, purge one batch, restore the other) runs end to end through the CLI on fixtures, on Windows; I-5 and I-6 pass. Phase 1 is feature-complete on test data; M5 is the first real run.
 
 **Done when:** the full flow init → scan → report → plan → apply → verify → purge → restore passes end to end on fixtures, on Windows.
 
