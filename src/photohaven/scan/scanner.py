@@ -28,12 +28,13 @@ from ..identity import Machine
 from ..util import (IS_WINDOWS, atomic_write_bytes, file_attributes, FILE_ATTRIBUTE_REPARSE_POINT, is_inside,
                     is_placeholder, join_rel, long_path, name_key, rel_to_path, sort_key, stat_ctime_us,
                     stat_mtime_us, utc_now)
-from .metadata import PH_META, normalize
+from .metadata import PH_META, classify, normalize, stale
 
 CHUNK = 1 << 20
 DESCRIBE_BATCH = 50
 DESCRIBED_MEDIA = ("image", "raw", "video")
-SCANNER_FLAGS = ("damaged", "exiftool_error", "path_key_collision", "cache_conflict", "unreadable", "zero_bytes")
+SCANNER_FLAGS = ("damaged", "suspect", "exiftool_error", "path_key_collision", "cache_conflict", "unreadable",
+                 "zero_bytes")
 
 
 class Describer(Protocol):
@@ -415,7 +416,7 @@ class Scanner:
 
     def _learn(self, r: FileFacts) -> None:
         """Remember content facts carried by a cache record (with metadata)."""
-        if r.sha256 and r.meta_impl and r.sha256 not in self.known:
+        if r.sha256 and r.meta_impl and r.sha256 not in self.known and not stale(r.meta_impl, r.meta):
             self.known[r.sha256] = {"content_sha256": r.content_sha256, "content_hash_impl": r.content_hash_impl,
                                     "meta": r.meta, "meta_impl": r.meta_impl}
 
@@ -479,7 +480,10 @@ class Scanner:
             return self.known[sha]
         row = db.content_row(self.conn, sha)
         if row is not None and row["meta_impl"]:
-            self.known[sha] = db.facts_from_content(row)
+            facts = db.facts_from_content(row)
+            if stale(facts.get("meta_impl"), facts.get("meta")):
+                return None             # described again with the current rules
+            self.known[sha] = facts
             return self.known[sha]
         return None
 
@@ -524,6 +528,10 @@ class Scanner:
                     e.facts = dataclasses.replace(e.facts, **c)
                 if e.facts.meta and e.facts.meta.get("damaged"):
                     e.flags["damaged"] = "; ".join(e.facts.meta.get("exiftool_messages", [])) or None
+                elif e.facts.meta and e.facts.meta.get("exiftool_messages"):
+                    _, suspect = classify(e.facts.meta["exiftool_messages"], False)
+                    if suspect:
+                        e.flags["suspect"] = "; ".join(e.facts.meta["exiftool_messages"])
 
     # -------------------------------------------------------------- persist
     def _persist(self, f: Folder, opts: ScanOptions) -> None:

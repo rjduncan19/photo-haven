@@ -284,7 +284,8 @@ def _warnings(conn, ingest_warnings: list[str]) -> list[dict]:
     labels = {"damaged": "Damaged file (ExifTool)", "cache_conflict": "Cached facts disagreed; rehashed",
               "path_key_collision": "Two names that differ only by case or Unicode form",
               "exiftool_error": "ExifTool could not read the file", "unreadable": "Could not read the file",
-              "zero_bytes": "Empty file"}
+              "zero_bytes": "Empty file",
+              "suspect": "Possibly damaged (ExifTool: JPEG format error); most such files open fine"}
     for r in conn.execute("SELECT g.flag, g.detail, f.root_id, f.relpath FROM flags g JOIN files f USING(file_id) "
                           "WHERE f.state IN ('present', 'cloud_only', 'unreadable') ORDER BY g.flag, f.relpath"):
         out.append({"kind": r["flag"], "label": labels.get(r["flag"], r["flag"]), "root": r["root_id"],

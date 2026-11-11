@@ -174,7 +174,7 @@ def upsert_content(conn, f: FileFacts, now: str) -> None:
         names = ["sha256", "size", "media", *cols, "first_seen"]
         conn.execute(f"INSERT INTO contents({', '.join(names)}) VALUES({', '.join('?' * len(names))})",
                      (f.sha256, f.size, f.media, *cols.values(), now))
-    elif f.meta_impl and _meta_newer(f.meta_impl, old["meta_impl"]):
+    elif f.meta_impl and (_meta_newer(f.meta_impl, old["meta_impl"]) or old["meta_impl"] is None):
         conn.execute(f"UPDATE contents SET {', '.join(f'{k} = ?' for k in cols)} WHERE sha256 = ?",
                      (*cols.values(), f.sha256))
 
