@@ -1,4 +1,4 @@
-from photohaven.scan.metadata import normalize, parse_date
+from photohaven.scan.metadata import classify, normalize, parse_date, stale
 
 HASH = "ab" * 32
 
@@ -45,11 +45,16 @@ def test_quicktime():
 
 
 def test_damage_rules():
-    # a [minor] first warning must not hide a damage warning (03 §8.1)
+    # a [minor] first warning must not hide a later one (03 §8.1)
     d = normalize({"ExifTool:ExifTool:Warning": "[minor] Skipped unknown 1 bytes after JPEG APP1 segment",
-                   "ExifTool:ExifTool:Copy1:Warning": "JPEG format error", "File:ImageDataHash": HASH})
+                   "ExifTool:ExifTool:Copy1:Warning": "Truncated 'mdat' data at offset 0x1234",
+                   "File:ImageDataHash": HASH})
     assert d.damaged and d.content_sha256 is None
-    assert d.meta["damaged"] is True and d.meta["exiftool_messages"] == ["JPEG format error"]
+    assert d.meta["damaged"] is True and d.meta["exiftool_messages"] == ["Truncated 'mdat' data at offset 0x1234"]
+    # ph-meta/2: "JPEG format error" alone is suspect, not damaged (55 of 61 decoded fine in the real library)
+    j = normalize({"ExifTool:ExifTool:Warning": "JPEG format error", "File:ImageDataHash": HASH})
+    assert not j.damaged and j.content_sha256 == HASH
+    assert classify(j.meta["exiftool_messages"], False) == (False, True)
     s = normalize({"ExifTool:ExifTool:Warning": "IPTCDigest is not current", "File:ImageDataHash": HASH})
     assert not s.damaged and s.content_sha256 == HASH and s.meta["exiftool_messages"]
     e = normalize({"ExifTool:ExifTool:Error": "File is empty"})
@@ -69,3 +74,24 @@ def test_numbers_and_strings_are_cleaned():
                    "Composite:GPSLongitude": 10, "File:MIMEType": "Image/JPEG"}).meta
     assert "model" not in m and "orientation" not in m and "gps_lat" not in m and "gps_lon" not in m
     assert m["mime"] == "image/jpeg"
+
+
+def test_metadata_structure_warnings_are_not_damage():
+    """The two false alarms of the first full-library run (ph-meta/1)."""
+    interop = normalize({"ExifTool:ExifTool:Warning": "Bad format (51651) for InteropIFD entry 0",
+                         "ExifTool:ExifTool:Copy1:Warning": "First entry for InteropIFD has an invalid format. "
+                                                            "Ignoring possibly corrupted IFD",
+                         "File:ImageDataHash": HASH})
+    trailer = normalize({"ExifTool:ExifTool:Warning": "Unknown trailer with truncated '\\x12\\x00' data at offset 0x21aa3a4",
+                         "File:ImageDataHash": HASH})
+    for d in (interop, trailer):
+        assert not d.damaged and d.content_sha256 == HASH and d.meta["exiftool_messages"]
+        assert classify(d.meta["exiftool_messages"], False) == (False, False)
+
+
+def test_stale_facts_are_described_again():
+    old = "exiftool/13.61;ph-meta/1"
+    assert stale(old, {"damaged": True, "exiftool_messages": ["Bad InteropIFD directory"]})
+    assert stale(old, {"exiftool_messages": ["JPEG format error"]})
+    assert not stale(old, {"make": "Canon"})                       # nothing to re-judge: keep it
+    assert not stale("exiftool/13.61;ph-meta/2", {"damaged": True})

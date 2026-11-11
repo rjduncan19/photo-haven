@@ -69,8 +69,10 @@ def test_dupecases(tmp_path, exiftool_exe):
         assert not missing_content
         # damage
         for f in hashed:
-            if f["damaged"] is True:
-                assert rows[f["path"]]["damaged"] == 1, f["path"]
+            if f["damaged"] is True:          # damaged, or suspect for a cut-off JPEG (ph-meta/2)
+                fl = {r[0] for r in env.conn.execute("SELECT g.flag FROM flags g JOIN files x USING(file_id) "
+                                                     "WHERE x.relpath = ?", (f["path"],))}
+                assert rows[f["path"]]["damaged"] == 1 or "suspect" in fl, f["path"]
             elif f["damaged"] is False:
                 assert rows[f["path"]]["damaged"] == 0, f["path"]
         # M2: suggestions are coherent on the corpus, and the report builds

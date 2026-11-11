@@ -17,12 +17,45 @@ import re
 
 from ..util import format_ts
 
-PH_META = 1
+PH_META = 2
 
 # 03 §8.1 "Damage". Versioned with PH_META.
+#
+# ph-meta/2, from the first full-library run (58,529 files): 206 phone JPEGs
+# with a broken InteropIFD and 34 Samsung MP4s with a cut-off trailer were
+# flagged damaged, yet all decode and play. Warnings about metadata
+# structures are never damage. "JPEG format error" alone is only *suspect*:
+# 55 of 61 such JPEGs decoded fine (many simply lack the end-of-image marker),
+# and ExifTool says the same for the 6 that really were cut short.
 DAMAGE_PATTERNS = re.compile(
-    r"format error|error reading|truncated|corrupt|unexpected end|bad .*(header|data)|missing .*data",
-    re.IGNORECASE)
+    r"error reading|truncated|corrupt|unexpected end|bad .*(header|data)|missing .*data", re.IGNORECASE)
+SUSPECT_PATTERNS = re.compile(r"format error", re.IGNORECASE)
+METADATA_STRUCTURE = re.compile(
+    r"IFD|maker ?notes?|trailer|XMP|IPTC|ICC|Photoshop|thumbnail|preview|UserComment|offset for", re.IGNORECASE)
+
+
+def classify(messages: list[str], has_error: bool) -> tuple[bool, bool]:
+    """(damaged, suspect) for a file's non-minor ExifTool messages."""
+    data = [m for m in messages if not METADATA_STRUCTURE.search(m)]
+    damaged = has_error or any(DAMAGE_PATTERNS.search(m) for m in data)
+    suspect = not damaged and any(SUSPECT_PATTERNS.search(m) for m in data)
+    return damaged, suspect
+
+
+def stale(meta_impl: str | None, meta: dict | None) -> bool:
+    """True when facts from an older ph-meta must be derived again: v1's
+    damage rule misjudged files with ExifTool messages, so those (and only
+    those) are described again by the next scan."""
+    if not meta_impl:
+        return False
+    v = -1
+    for part in meta_impl.split(";"):
+        if part.startswith("ph-meta/"):
+            try:
+                v = int(part[8:])
+            except ValueError:
+                v = -1
+    return v < 2 and bool(meta) and bool(meta.get("damaged") or meta.get("exiftool_messages"))
 
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _MIME = re.compile(r"^[a-z0-9.+-]+/[a-z0-9.+-]+$")
@@ -191,7 +224,7 @@ def messages_of(t: _Tags) -> tuple[list[str], bool]:
     errors = [str(v) for v in t.all("ExifTool", "Error")]
     warnings = [str(v) for v in t.all("ExifTool", "Warning")]
     serious = [w for w in warnings if not w.lstrip().lower().startswith("[minor]")]
-    damaged = bool(errors) or any(DAMAGE_PATTERNS.search(w) for w in serious)
+    damaged, _ = classify(serious, bool(errors))
     return errors + serious, damaged
 
 

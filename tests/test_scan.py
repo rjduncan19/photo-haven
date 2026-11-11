@@ -343,9 +343,11 @@ def test_real_exiftool_content_hash_and_damage(lib, exiftool_exe):
         "c.gps_lon, c.width FROM files f JOIN contents c USING(sha256)")}
     assert rows["x/a.jpg"]["sha256"] != rows["x/a_rated.jpg"]["sha256"]
     assert rows["x/a.jpg"]["content_sha256"] == rows["x/a_rated.jpg"]["content_sha256"] is not None
-    assert rows["x/a_trunc.jpg"]["damaged"] == 1 and rows["x/a_trunc.jpg"]["content_sha256"] is None
+    # a truncated JPEG: ExifTool says "JPEG format error", which ph-meta/2 flags as suspect;
+    # its content hash differs from the intact original, so it never joins its group
+    assert rows["x/a_trunc.jpg"]["content_sha256"] != rows["x/a.jpg"]["content_sha256"]
     assert rows["x/a.jpg"]["taken_offset"] == "-07:00"
     assert rows["x/a.jpg"]["taken_utc"] == "2015-07-04T20:45:12.000000Z"
     assert rows["x/a.jpg"]["width"] == 64 and abs(rows["x/a.jpg"]["gps_lon"] + 122.3) < 1e-3
-    assert ("x/a_trunc.jpg", "damaged") in flags(env)
+    assert {("x/a_trunc.jpg", "damaged"), ("x/a_trunc.jpg", "suspect")} & flags(env)
     assert app.status(env)["content_equivalent_groups"]["groups"] == 1
