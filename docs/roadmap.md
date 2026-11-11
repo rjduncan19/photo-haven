@@ -12,7 +12,7 @@ Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, a
 - [x] Build the small test corpus (`make_corpus.py`). All M0–M4 work uses test data; the real library waits for M5.
 - [x] Duplicate-case corpus (`make_dupe_corpus.py`): planted copies, moves, renames, date and metadata changes, damage, with an expected-groups manifest.
 - [x] **Spike: content hash** ([D-05](decisions.md#d-05-content-hash--exiftool-imagedatahash-sha-256)). On copies of real JPEG, HEIC, PNG, and MOV/MP4: confirm `ImageDataHash` (SHA-256) is unchanged after writing XMP/EXIF; measure throughput on the Windows machine. Raw moved to [R1](#r1-live-photos-and-raw).
-- [ ] **Spike: OneDrive behavior.** On a scratch folder inside OneDrive, on two machines: are mtimes preserved exactly across machines? Is a move *within* OneDrive synced as a true move (decides [D-10](decisions.md#d-10-quarantine-location))? What does the client do when many files are moved out? Are hidden dotfiles synced? Which placeholder attributes appear on a dehydrated file?
+- [x] **Spike: OneDrive behavior.** Done 2026-11-11 ([m0-results C](spikes/m0-results.md#c-onedrive)); D-10 decided. On a scratch folder inside OneDrive, on two machines: are mtimes preserved exactly across machines? Is a move *within* OneDrive synced as a true move (decides [D-10](decisions.md#d-10-quarantine-location))? What does the client do when many files are moved out? Are hidden dotfiles synced? Which placeholder attributes appear on a dehydrated file?
 - Spike: Apple metadata: moved to [R1](#r1-live-photos-and-raw).
 - [x] Answer the blocking [open questions](open-questions.md): ExifTool answered (Q-3); real paths deferred to M5 by choice (Q-1); Q-2, Q-4, Q-5 wait on spike C.
 

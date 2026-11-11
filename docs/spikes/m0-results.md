@@ -93,7 +93,7 @@ Already clear for the spec:
 
 ## C. OneDrive
 
-Run 2026-11-11 on tomahawk (personal OneDrive, M365; Windows 11; one internal drive, C:). Probe: 200 files of 1 MB random bytes plus a hidden `.photohaven-cache.probe.jsonl`, in `OneDrive\PH-probe-area`. The second-machine steps (C2, C3) are still to do.
+Run 2026-11-11 on tomahawk (personal OneDrive, M365; Windows 11; one internal drive, C:) and txuleta (C2/C3, read with a PowerShell one-liner instead of the probe script). Probe: 200 files of 1 MB random bytes with distinct sub-second mtimes, plus a hidden `.photohaven-cache.probe.jsonl`, in `OneDrive\PH-probe-area`. Probe removed afterwards.
 
 | Step | Result |
 |---|---|
@@ -109,10 +109,24 @@ Run 2026-11-11 on tomahawk (personal OneDrive, M365; Windows 11; one internal dr
 - **On this machine, both modes are same-volume renames.** tomahawk has a single drive, so a local quarantine outside OneDrive (C:\PhotoHavenQuarantine) would also be an instant rename. The difference is only what OneDrive does: a delete (cloud space freed, files in the recycle bin, a full re-upload if restored), or a move.
 - **Restore cost.** With a quarantine outside OneDrive, every restore is a full re-upload (C5's move back). Inside OneDrive, a restore is another server-side move.
 
-**Still open:** C2/C3 on txuleta (cross-machine mtime precision, Q-4; dotfile still hidden there; placeholder attributes after *Free up space*), and whether moved files arrive on txuleta without a download. The probe is left in `OneDrive\PH-probe-area\PhotoHaven-probe-b2a78bc4` for that; `onedrive_probe.py cleanup` removes it afterwards.
+**C2/C3 on txuleta:**
+
+| Question | Result |
+|---|---|
+| Did the folder arrive? | Not at first: txuleta's OneDrive uses *Choose folders*, so a new top-level folder isn't synced until it's ticked. OneDrive still reported "up to date". |
+| Are mtimes identical across machines? (Q-4) | **No: truncated to whole seconds.** 0 of 202 files kept their sub-second part on txuleta; every one was 0–999 ms earlier than on tomahawk (`floor` to the second). |
+| Is the dotfile still hidden? | **No.** Hidden on tomahawk, not hidden on txuleta: the attribute doesn't sync. |
+| Placeholder attributes | Every file arrived cloud-only (Files On-Demand): `0x401620` = archive, sparse, reparse point, offline, recall-on-data-access. *Free up space* wasn't needed to see them. |
+
+**What this settles:**
+
+- **`mtime_tolerance_us` stays at 1 s (1,000,000).** With 0, a second machine would rehash every file. The tolerance has to cover a full second, since the difference reaches 999 ms.
+- **Placeholder detection works as designed.** The scanner's mask (offline, recall-on-open, recall-on-data-access) matches what OneDrive sets. The reparse-point bit is also set on these files; the scanner only treats reparse *directories* that aren't placeholders as links, so placeholder files are not mistaken for symlinks.
+- **Other machines' cache files are visible in Explorer** (the hidden bit is local). Each machine re-hides only its own file today. Possible follow-up: have the scanner also hide any cache file it reads (a local attribute; it doesn't change the file).
+- **Selective sync can hide the project home.** The planned project home `OneDrive\PhotoHaven-data` is a new top-level folder, so a machine on *Choose folders* would silently not see the other machines' decision and quarantine logs. Follow-up: `doctor` should warn when this machine sees none of the other registered machines' logs, and the setup notes should say to tick the folder.
 
 ## Follow-ups
 
 1. Spec and doc changes from these results, made as part of the M0 spec pass: docs/04 stage 4 (`-a -G4`, warning classes, size is not equality), 03 §1.6 (NFC/NFD collisions in `path_key`), 05 §2 (capture time for any future `remove_equivalent`).
-2. Spike C (OneDrive): C0, C1, C4, C5 done on tomahawk (above). C2/C3 need the second machine.
+2. Spike C (OneDrive): done (above). Follow-ups: a `doctor` check for a project home that selective sync hides, and optionally hiding other machines' cache files.
 3. Raw, Live Photo and burst checks: [R1](../roadmap.md#r1-live-photos-and-raw).
