@@ -14,7 +14,17 @@ Photo Haven is a tool for bringing order to a large family photo library that ha
 
 ## Status
 
-**Design phase.** Nothing is implemented yet. The design docs are the current deliverable, and the [format spec](docs/03-format-spec.md) is the contract that every implementation must follow.
+**M1 (scanner) done.** `photohaven init`, `scan`, `status`, `doctor` and `rebuild-db` work on test libraries; reports, decisions and quarantine (M2–M4) come next. Not ready for the real library yet. The [format spec](docs/03-format-spec.md) is the contract every implementation must follow.
+
+```
+python -m pip install -e ".[dev]"
+photohaven --state STATE init --project-home HOME --root pics=PATH --quarantine QPATH
+photohaven --state STATE scan            # read-only for photos; writes hidden .photohaven-cache.*.jsonl files
+photohaven --state STATE status
+python -m pytest                         # PHOTOHAVEN_DUPECASES=<corpus> adds the M0 acceptance run
+```
+
+`--state` defaults to `%LOCALAPPDATA%\PhotoHaven`. Use `scan --no-folder-cache` to keep even the cache files out of the photo folders.
 
 ## Documentation
 

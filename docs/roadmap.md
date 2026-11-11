@@ -22,14 +22,17 @@ Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, a
 
 ## M1: Foundations and scanner
 
-- [ ] Package skeleton (`pyproject.toml`, `src/photohaven`, console script), CI on Windows and Linux.
-- [ ] `util`: path normalization, timestamps, UUIDv7, atomic writes, Windows attributes, long paths.
-- [ ] `config` + `identity`: `init`, `machine`, `root add/map/list`, root markers, lock file.
-- [ ] `formats`: cache file reader/writer with canonical JSON; round-trip tests against `spec/examples`.
-- [ ] `db`: schema creation, migrations scaffold.
-- [ ] `scan`: walk, placeholder detection, size grouping, hash pool, two hash passes, ExifTool bridge, metadata normalization, cache reuse, persist, missing-file handling, `--no-folder-cache`, `--audit`.
-- [ ] `status`, `doctor`.
-- [ ] Fixture generator and library builder.
+- [x] Package skeleton (`pyproject.toml`, `src/photohaven`, console script), CI on Windows and Linux (`.github/workflows/ci.yml`; not yet run on GitHub).
+- [x] `util`: path normalization, timestamps, UUIDv7, atomic writes, Windows attributes, long paths.
+- [x] `config` + `identity`: `init`, `machine`, `root add/map/list`, root markers, lock file.
+- [x] `formats`: cache file reader/writer with canonical JSON; round-trip tests against `spec/examples`.
+- [x] `db`: schema creation, migrations scaffold.
+- [x] `scan`: walk, placeholder detection, size grouping, hash pool, two hash passes, ExifTool bridge, metadata normalization, cache reuse, persist, missing-file handling, `--no-folder-cache`, `--audit`.
+- [x] `status`, `doctor`, `rebuild-db`.
+- [x] Fixture generator and library builder (`tests/fixtures/gen.py`).
+- [x] Acceptance: `tests/test_dupecases.py` reproduces every exact group, content group and damage label of the M0 duplicate-case corpus (set `PHOTOHAVEN_DUPECASES`).
+
+**Status (2026-11-10):** done, with these left for later: `scan --hydrate` (opt-in reading of placeholders), a pool of more than one ExifTool process (`exiftool_processes` is read but one process is used), `trust_move_hints`, and the filename/mtime date fallbacks, which move to M2 because they are per instance, not per content (04 stage 4).
 
 **Done when:** a fixture library scans correctly; a rescan with no changes hashes nothing; a second simulated machine hashes nothing; `rebuild-db` reproduces the scanned DB.
 
@@ -67,6 +70,7 @@ Deferred from M0/M2/M3 so the base duplicate flow comes first. Exact duplicates 
 
 - [ ] **Spike: raw.** Spike A on at least one sample per raw format in the library (`ImageDataHash` stable; whether ExifTool can write ratings or a sidecar `.xmp` is needed).
 - [ ] **Spike: Apple metadata.** Live Photos and bursts copied straight from the iPhone, next to the same photos uploaded by OneDrive: exact tag names (ContentIdentifier for HEIC and MOV, BurstUUID), and whether the OneDrive upload drops them. See [m0-results B](spikes/m0-results.md#b-apple-tags-03-33-05-4).
+- [ ] Rule: when a paired Live Photo (HEIC+MOV from iCloud or USB) meets the OneDrive-uploaded still of the same shot, the paired copy is the keeper. OneDrive camera upload keeps only the still ([m0-results B](spikes/m0-results.md#b-apple-tags-03-33-05-4)).
 - [ ] `link`: raw pairs, Live Photos (ID, then a guarded name fallback that rejects false pairs such as a JPEG next to an unrelated MP4).
 - [ ] Pair-split warnings in plan; report sections for pairs.
 

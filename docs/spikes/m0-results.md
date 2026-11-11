@@ -84,6 +84,8 @@ Pairs by ID: 0 · by folder+name: 1 · disagreements: 1 (`20261016_080654000_iOS
 
 **Conclusion: not settled.** The set has no Live Photo videos. Every iPhone file has OneDrive camera-upload names, and none of the HEICs has a ContentIdentifier. Either OneDrive's camera upload drops the Live Photo video and the ContentIdentifier, or this camera roll has no Live Photos. To settle it, we need a few Live Photos and a burst copied **straight from the iPhone** (USB / Windows Photos import, or "Export unmodified original"), next to the same photos as OneDrive uploaded them.
 
+**Update 2026-11-10 (Rick, by hand on the iPhone):** OneDrive camera upload does not keep Live Photos. Fresh Live Photos upload as the HEIC still only; no `.MOV` reaches the PC, and the OneDrive web client doesn't play them as live. This is a personal OneDrive (M365) account with *Include Videos* on, and ordinary videos upload fine. So the OneDrive-synced library holds stills only: there are no Live Photo pairs in it to split, and the motion exists only on the phone (and in iCloud, if enabled). Paired copies can only come from iCloud for Windows or a USB import ("Keep Originals"). When such a copy meets the OneDrive still, it is a content-equivalent but fuller version; R1 must prefer the paired copy as keeper.
+
 Already clear for the spec:
 - ExifTool `-G1` reports the group as `Apple`; `-G0` reports `MakerNotes`. §3.3 should say which group family it means.
 - The folder+name fallback (05 §4) creates false pairs with OneDrive's timestamp names. It needs a guard, for example the clip must be a short MOV (not MP4) taken by the same model, or a lower confidence with no automatic keep-together.

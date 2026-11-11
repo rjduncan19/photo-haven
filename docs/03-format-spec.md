@@ -51,7 +51,7 @@ Photo capture time is stored as up to three fields, because most cameras record 
 | `taken_local` | `YYYY-MM-DDTHH:MM:SS[.f…]` | Local wall-clock time as recorded, with 1–6 fractional digits only if the file records sub-seconds (as recorded, not padded). No zone. |
 | `taken_offset` | `+HH:MM` / `-HH:MM` or null | UTC offset, if the file records one (iOS does; most older DSLRs don't). |
 | `taken_utc` | §1.2 format or null | Only if derivable (offset known, or source is a UTC field such as QuickTime `CreateDate`). |
-| `taken_source` | enum | `exif_original`, `exif_digitized`, `quicktime_creationdate`, `quicktime_createdate`, `xmp_datecreated`, `filename`, `mtime`. |
+| `taken_source` | enum | `exif_original`, `exif_digitized`, `quicktime_creationdate`, `quicktime_createdate`, `xmp_datecreated`, `filename`, `mtime`. `filename` and `mtime` are per-instance fallbacks: they never appear in a cache record's `meta` or in `contents` (which describe bytes shared by every copy), only in per-file views from M2 on. |
 
 Year/month organization (phase 2) uses `taken_local`, because a photo taken at 11 pm on December 31 belongs to that December wherever it was taken.
 
@@ -233,7 +233,7 @@ All fields optional; absent and `null` mean the same thing. Values are normalize
 
 | Field | Type | Source (ExifTool tag, in priority order) |
 |---|---|---|
-| `taken_local`, `taken_offset`, `taken_utc`, `taken_source` | §1.4 | `EXIF:DateTimeOriginal` + `SubSecTimeOriginal` + `OffsetTimeOriginal`; `EXIF:CreateDate`; `QuickTime:CreationDate` (has zone); `QuickTime:CreateDate` (UTC); `XMP:DateCreated`; filename pattern |
+| `taken_local`, `taken_offset`, `taken_utc`, `taken_source` | §1.4 | `EXIF:DateTimeOriginal` + `SubSecTimeOriginal` + `OffsetTimeOriginal`; `EXIF:CreateDate`; `QuickTime:CreationDate` (has zone); `QuickTime:CreateDate` (UTC: `taken_local` then holds the UTC wall clock, with no `taken_offset`); `XMP:DateCreated` |
 | `make`, `model`, `lens` | string | `EXIF:Make`, `EXIF:Model`, `EXIF:LensModel` / `Composite:LensID` |
 | `width`, `height` | int | `Composite:ImageSize` (pre-rotation pixel dimensions) |
 | `orientation` | int 1–8 | `EXIF:Orientation` |
@@ -680,3 +680,4 @@ HAVING COUNT(*) > 1;
 |---|---|---|
 | 1 (draft) | 2026-11-09 | Initial draft from the planning handoff. |
 | 1 | 2026-11-10 | Binding. From the M0 spikes: damage rules and `meta.damaged` / `meta.exiftool_messages` (§3.3, §8.1; `contents.damaged`, `contents.exiftool_messages`); `path_key` is not unique, so uniqueness moves to raw `(root_id, relpath)` (§1.6, §9); family-0 tag groups and unconfirmed Apple IDs (§3.3). Gaps closed while writing `spec/`: canonical rules for nulls, booleans and numbers (§1.1); cache records only for hashed or skipped files (§3.2); quarantine log header (§6.1); `library_id` in the export header (§5.3); `retired_at` in the machine registry (§2.4); fractional digits in `taken_local` (§1.4). |
+| 1 | 2026-11-10 | Clarifications from M1, no format change: `filename`/`mtime` capture-time sources are per instance and never appear in `meta` (§1.4, §3.3); `QuickTime:CreateDate` fills `taken_local` with UTC wall-clock time and no offset (§3.3). |
