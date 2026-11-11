@@ -14,6 +14,7 @@ from . import __version__, app
 from .config import ConfigError
 from .formats import FormatError
 from .identity import LockError
+from .apply import ApplyError
 from .scan.exiftool import ExifToolError
 from .scan.scanner import ScanOptions
 
@@ -123,6 +124,27 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--subtree", action="store_true", help="folder: apply to it and everything below")
     d.add_argument("--note")
 
+    s = sub.add_parser("plan", help="dry run: what apply would move, and what stays")
+    s.add_argument("--decisions", type=pathlib.Path, help="import this report export first")
+    s.add_argument("--top", type=int, default=10)
+    s = sub.add_parser("apply", help="move planned duplicates into quarantine (dry run unless --execute)")
+    s.add_argument("--decisions", type=pathlib.Path, help="import this report export first")
+    s.add_argument("--execute", action="store_true", help="carry out the last plan you reviewed")
+    s.add_argument("--batch-limit", type=int, help="move at most N files this run")
+    s.add_argument("--no-rescan", action="store_true", help="skip the light rescan after moving")
+    s.add_argument("--top", type=int, default=10)
+    s.add_argument("--quiet", action="store_true")
+    s = sub.add_parser("verify", help="re-hash quarantined files and check keepers")
+    s.add_argument("--batch")
+    s = sub.add_parser("quarantine", help="quarantine batches")
+    qs = s.add_subparsers(dest="sub", required=True)
+    qs.add_parser("list")
+    q = qs.add_parser("show")
+    q.add_argument("batch")
+    s = sub.add_parser("tidy", help="remove folders that hold only Photo Haven cache files")
+    s.add_argument("--empty-folders", action="store_true", required=True)
+    s.add_argument("--execute", action="store_true")
+
     s = sub.add_parser("status", help="counts, duplicates, last scan")
     s.add_argument("--json", action="store_true")
     sub.add_parser("doctor", help="check this machine's setup")
@@ -135,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return _dispatch(args)
-    except (ConfigError, FormatError, LockError, ExifToolError, ValueError) as e:
+    except (ConfigError, FormatError, LockError, ExifToolError, ApplyError, ValueError) as e:
         print(f"photohaven: {e}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
@@ -199,6 +221,41 @@ def _dispatch(args) -> int:
                 webbrowser.open(index.as_uri())
         elif args.cmd == "decisions":
             return _decisions(env, args)
+        elif args.cmd == "plan" or (args.cmd == "apply" and not args.execute):
+            p, listing = app.make_plan(env, args.decisions)
+            _print_plan(env, p, listing, args.top)
+        elif args.cmd == "apply":
+            if args.decisions:
+                print("apply --execute runs the plan you reviewed; import decisions with 'plan --decisions' first",
+                      file=sys.stderr)
+                return 2
+            prog = _Progress(args.quiet)
+            res = app.apply_execute(env, batch_limit=args.batch_limit, rescan=not args.no_rescan, progress=prog)
+            prog.done()
+            _print_apply(res)
+            return 1 if res.verify_failed else 0
+        elif args.cmd == "verify":
+            from .apply import Applier
+            a = Applier(env)
+            a.check_machine()
+            for m in a.recover():
+                print("recovered: " + m)
+            ok, failed = a.verify(args.batch)
+            print(f"verified {ok}; failed {len(failed)}")
+            for p, why in failed:
+                print(f"  FAILED {p}: {why}")
+            return 1 if failed else 0
+        elif args.cmd == "quarantine":
+            return _quarantine(env, args)
+        elif args.cmd == "tidy":
+            from .apply import tidy
+            done = tidy(env, execute=args.execute)
+            for d in done:
+                print(("removed " if args.execute else "would remove ") + d)
+            if not args.execute and done:
+                print(f"{len(done)} folder(s); run again with --execute to remove them")
+            if not done:
+                print("no folders hold only Photo Haven cache files")
         elif args.cmd == "status":
             st = app.status(env)
             if args.json:
@@ -276,6 +333,78 @@ def _decisions(env, args) -> int:
     return 2
 
 
+def _print_plan(env, p, listing, top: int) -> None:
+    import shutil
+    from . import plan as planner
+    roots = {r.root_id: r.name for r in env.library.roots}
+    machines = {r[0]: r[1] for r in env.conn.execute("SELECT machine_id, name FROM machines")}
+    newest = env.conn.execute("SELECT max(at) FROM decisions").fetchone()[0]
+    others = env.conn.execute("SELECT machine_id, count(*) FROM decisions WHERE machine_id != ? GROUP BY machine_id",
+                              (env.machine.machine_id,)).fetchall()
+    extra = "".join(f" incl. {n} from {machines.get(m, m[:8])}" for m, n in others)
+    print(f"Plan {p.plan_id} (from scan {p.scan_id}, decisions through {newest or 'none'}{extra})")
+    print()
+    print(f"  Will move to quarantine:   {len(p.items):,} files   {_human(p.bytes)}")
+    q = env.mcfg.quarantine_root
+    if q and p.items:
+        same = all(planner.same_volume(env.mcfg.roots[i.root_id], q) for i in p.items[:50])
+        try:
+            free_s = f", {_human(shutil.disk_usage(q).free)} free"
+        except OSError:
+            free_s = ""
+        how = "same volume: instant moves" if same else "cross-volume copy; needs " + _human(p.bytes)
+        print(f"  Quarantine:                {q}   ({how}{free_s})")
+    print(f"  Kept (undecided/keep):     {p.kept:,} duplicate instances left in place by your decisions")
+    print(f"  Blocked (last copy):       {len(p.blocked):,} files in remove folders have no other copy and stay")
+    print(f"  Conflicts:                 {len(p.conflicts):,} groups where every copy was marked remove; kept one of each")
+    print(f"  Skipped:                   {len(p.skipped):,}")
+    if p.ignored_protected:
+        print(f"  Protected:                 {p.ignored_protected:,} folder-level removes ignored in intake/protected folders")
+    for w in p.warnings:
+        print(f"  warning: {w}")
+    if p.items:
+        print()
+        print("  Top folders:")
+        for rid, folder, n, b in planner.top_folders(p, top):
+            print(f"    {roots.get(rid, '?')}:{folder or '/'}  {n:,} files  {_human(b)}")
+        print()
+        print("Run 'photohaven apply --execute' to carry out this plan.")
+    print(f"Full list: {listing}")
+
+
+def _print_apply(res) -> None:
+    for m in res.recovered:
+        print("recovered: " + m)
+    if res.batch_id is None:
+        print("nothing to move")
+        return
+    print(f"batch {res.batch_id}: moved {res.moved} files ({_human(res.moved_bytes)}); verified {res.verified}"
+          + (f"; {res.remaining} left for later runs" if res.remaining else ""))
+    for p, why in res.skipped:
+        print(f"  skipped {p}: {why}")
+    for p, why in res.verify_failed:
+        print(f"  VERIFY FAILED {p}: {why}  (restoring is the next step)")
+
+
+def _quarantine(env, args) -> int:
+    if args.sub == "list":
+        for b in env.conn.execute(
+                "SELECT b.batch_id, b.created_at, b.state, b.quarantine_root, count(q.relpath), "
+                "coalesce(sum(q.size), 0) FROM batches b LEFT JOIN quarantine_items q USING(batch_id) "
+                "GROUP BY b.batch_id ORDER BY b.created_at"):
+            print(f"{b[0]}  {b[1][:19]}  {b[2]:10} {b[4]:6} files {_human(b[5]):>10}  {b[3]}")
+        return 0
+    rows = env.conn.execute("SELECT * FROM quarantine_items WHERE batch_id = ? ORDER BY relpath",
+                            (args.batch,)).fetchall()
+    if not rows:
+        print(f"no batch {args.batch}", file=sys.stderr)
+        return 2
+    for r in rows:
+        err = f"  {r['last_error']}" if r["last_error"] else ""
+        print(f"{r['state']:13} {r['relpath']}  (keeper {r['keeper_relpath']}){err}")
+    return 0
+
+
 def _print_scan(res, as_json: bool) -> None:
     import dataclasses
     if as_json:
@@ -302,6 +431,9 @@ def _print_status(st: dict) -> None:
     c = st["content_equivalent_groups"]
     print(f"  same image, different bytes: {c['groups']} groups ({c['contents']} contents), report only")
     print(f"  not yet hashed: {st['pending_hash']}")
+    if st.get("quarantine"):
+        print("  quarantine: " + ", ".join(f"{k} {v['files']} ({_human(v['bytes'])})"
+                                          for k, v in sorted(st["quarantine"].items())))
     if st["flags"]:
         print("  flags: " + ", ".join(f"{k} {v}" for k, v in sorted(st["flags"].items())))
     ls = st["last_scan"]

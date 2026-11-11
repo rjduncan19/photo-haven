@@ -453,3 +453,87 @@ def append_jsonl(path, header: dict, records: list[dict]) -> None:
         f.write(prefix + "".join(canonical(r) + "\n" for r in records).encode("utf-8"))
         f.flush()
         os.fsync(f.fileno())
+
+
+# ------------------------------------------------------- quarantine (§6)
+
+QUARANTINE_EVENTS = ("moved", "verified", "verify_failed", "restored", "purge_refused", "purged")
+
+
+@dataclasses.dataclass
+class QuarantineEvent:
+    """A §6.1 quarantine log event; the same fields make a §6.2 manifest item."""
+    id: str
+    at: str
+    machine_id: str
+    seq: int
+    batch_id: str
+    event: str
+    root_id: str
+    path: str
+    sha256: str
+    size: int
+    keeper_root_id: str
+    keeper_path: str
+    qpath: str
+    detail: str | None = None
+    extra: dict = dataclasses.field(default_factory=dict)
+
+    def to_record(self, record: str = "quarantine") -> dict:
+        return {**self.extra, **prune({
+            "record": record, "id": self.id, "at": self.at, "machine_id": self.machine_id, "seq": self.seq,
+            "batch_id": self.batch_id, "event": self.event, "root_id": self.root_id, "path": self.path,
+            "sha256": self.sha256, "size": self.size,
+            "keeper": {"root_id": self.keeper_root_id, "path": self.keeper_path},
+            "qpath": self.qpath, "detail": self.detail})}
+
+    @classmethod
+    def from_record(cls, d: dict) -> "QuarantineEvent":
+        known = {"record", "id", "at", "machine_id", "seq", "batch_id", "event", "root_id", "path", "sha256", "size",
+                 "keeper", "qpath", "detail"}
+        try:
+            k = d["keeper"]
+            ev = cls(d["id"], d["at"], d["machine_id"], d["seq"], d["batch_id"], d["event"], d["root_id"], d["path"],
+                     d["sha256"], d["size"], k["root_id"], k["path"], d["qpath"], d.get("detail"),
+                     {x: v for x, v in d.items() if x not in known})
+        except (KeyError, TypeError) as e:
+            raise FormatError(f"quarantine record missing {e}") from None
+        if ev.event not in QUARANTINE_EVENTS:
+            raise FormatError(f"unknown quarantine event {ev.event!r}")
+        return ev
+
+
+def read_quarantine_log(path) -> tuple[dict, list[QuarantineEvent], list[str]]:
+    j = read_jsonl(path, "quarantine-log", append_only=True)
+    out, warnings = [], list(j.warnings)
+    for i, r in enumerate(j.records, 2):
+        if r.get("record") != "quarantine":
+            continue
+        try:
+            out.append(QuarantineEvent.from_record(r))
+        except FormatError as e:
+            warnings.append(f"{path}:{i}: ignored event ({e})")
+    return j.header, out, warnings
+
+
+def read_manifest(path) -> tuple[dict, list[QuarantineEvent], list[str]]:
+    j = read_jsonl(path, "quarantine-manifest", append_only=True)
+    out, warnings = [], list(j.warnings)
+    for i, r in enumerate(j.records, 2):
+        if r.get("record") != "item":
+            continue
+        try:
+            out.append(QuarantineEvent.from_record(r))
+        except FormatError as e:
+            warnings.append(f"{path}:{i}: ignored item ({e})")
+    return j.header, out, warnings
+
+
+def quarantine_log_header(library_id: str, machine_id: str, created_at: str) -> dict:
+    return {"record": "header", "schema": SPEC_VERSION, "kind": "quarantine-log", "library_id": library_id,
+            "machine_id": machine_id, "created_at": created_at}
+
+
+def manifest_header(batch_id: str, library_id: str, machine_id: str, plan_id: str, created_at: str) -> dict:
+    return {"record": "header", "schema": SPEC_VERSION, "kind": "quarantine-manifest", "batch_id": batch_id,
+            "library_id": library_id, "machine_id": machine_id, "plan_id": plan_id, "created_at": created_at}

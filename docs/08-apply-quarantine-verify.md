@@ -52,6 +52,8 @@ Full list: %LOCALAPPDATA%\PhotoHaven\plans\01932f6e-….txt
 
 `apply --execute` re-plans and refuses to proceed if the result differs from the last plan shown (a different `decisions_digest` or item set). What runs is exactly what was reviewed. `--batch-limit N` caps one run at N files, for working in rounds.
 
+**Refinement (M3):** "differs" means a different `decisions_digest`, or any item that wasn't in the reviewed plan. Fewer items is fine: after a `--batch-limit` round the rest of the same reviewed plan can run without planning again, and items that the pre-move checks skipped simply drop out. A keeper is ineligible only if a quarantine log lists that path *with the same `sha256`* as moved and not restored, so a new file that later appears at a quarantined path isn't blocked forever.
+
 ## 4. The move protocol
 
 For each plan item, in folder order:
@@ -63,7 +65,7 @@ For each plan item, in folder order:
 - No other quarantine log lists the keeper as moved.
 - The destination `qpath` doesn't exist (or exists as a finished copy with the right hash, from an interrupted earlier run; see §5).
 
-**Same volume** (the quarantine root is on the same NTFS volume as the root): `os.rename(source, qpath)`. Atomic: the file is in exactly one place at every instant.
+**Same volume** (the quarantine root is on the same NTFS volume as the root): hash the source and require the planned `sha256` (rule 6: the size and mtime checks can't see a same-size edit with the mtime put back), then `os.rename(source, qpath)`. Atomic: the file is in exactly one place at every instant.
 
 **Cross volume** (the normal case, quarantine on another drive):
 
@@ -90,6 +92,8 @@ The DB row for an item is written as `moving` and committed *before* the filesys
 | Source absent, `qpath` absent | **Should be impossible** | Stop the run. Report loudly with the path, `sha256`, and keeper. The keeper still holds the same bytes (I-2), so no content is lost, but this indicates a bug. |
 
 Crash-injection tests cover every row ([10](10-testing.md)).
+
+**Refinement (M3):** an `OSError` during one item's move (a file locked by another program, say) reconciles that item at once by the same table and skips it with the reason; the run continues. Recovery deletes only Photo Haven's own `.partial` files, and sets a quarantine copy that fails its hash aside as `<qpath>.bad` rather than deleting it.
 
 ## 6. Verify (right after apply)
 

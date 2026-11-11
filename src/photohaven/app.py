@@ -11,7 +11,7 @@ import platform
 import re
 import sqlite3
 
-from . import db, decisions, link, report
+from . import apply as applier, db, decisions, link, plan as planner, report
 from .config import (ConfigError, Library, LibrarySettings, MachineConfig, RootInfo, default_state_dir,
                      LIBRARY_JSON, LIBRARY_TOML)
 from .formats import ROOT_MARKER, FormatError, RootMarker, is_cache_file_name
@@ -234,6 +234,31 @@ def make_report(env: Env, *, out: pathlib.Path | None = None, thumbs: bool = Tru
             et.close()
 
 
+def make_plan(env: Env, decisions_file: pathlib.Path | None = None):
+    """08 §3: import decisions if given, plan, save. Returns (plan, list file)."""
+    if decisions_file:
+        decisions.import_export(env.conn, env.project_home, env.state_dir, env.library, env.machine.machine_id,
+                                decisions_file)
+    if env.library.apply_machine_id == env.machine.machine_id:
+        applier.Applier(env).recover()
+    p = planner.make_plan(env.conn, env.library, env.project_home, dict(env.mcfg.roots), env.mcfg.quarantine_root)
+    path = planner.save(env.conn, p, env.state_dir, {r.root_id: r.name for r in env.library.roots})
+    return p, path
+
+
+def apply_execute(env: Env, *, batch_limit: int | None = None, rescan: bool = True, progress=None):
+    """08 §4: carry out the last reviewed plan, verify, then a light rescan of
+    the affected roots so this machine's cache files reflect the moves."""
+    db.backup(env.conn, env.state_dir)
+    res = applier.Applier(env).apply(batch_limit=batch_limit, progress=progress)
+    if rescan and res.moved:
+        roots = {r[0] for r in env.conn.execute(
+            "SELECT DISTINCT root_id FROM quarantine_items WHERE batch_id = ?", (res.batch_id,))}
+        names = [r.name for r in env.library.roots if r.root_id in roots]
+        scan(env, ScanOptions(roots=names), use_exiftool=False, progress=progress)
+    return res
+
+
 def parse_target_path(env: Env, s: str) -> tuple[str, str]:
     """'ROOT:relpath' or, with a single root, 'relpath' -> (root_id, relpath)."""
     if ":" in s and not (len(s) > 1 and s[1] == ":" and s[0].isalpha()):
@@ -267,6 +292,8 @@ def status(env: Env) -> dict:
     out["dup_groups"] = {"groups": dup[0], "instances": dup[1], "reclaimable_bytes": dup[2]}
     out["content_equivalent_groups"] = {"groups": ceq[0], "contents": ceq[1]}
     out["flags"] = {f: n for f, n in c.execute("SELECT flag, count(*) FROM flags GROUP BY flag")}
+    out["quarantine"] = {s: {"files": n, "bytes": b or 0} for s, n, b in c.execute(
+        "SELECT state, count(*), sum(size) FROM quarantine_items GROUP BY state")}
     last = q("SELECT scan_id, started_at, finished_at, status, files_seen, files_hashed, errors FROM scans "
              "ORDER BY scan_id DESC LIMIT 1")
     out["last_scan"] = dict(last) if last else None

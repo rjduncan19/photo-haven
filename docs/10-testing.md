@@ -44,7 +44,7 @@ The tests have one job above all others: prove that no sequence of commands, cra
 
 ## 4. Crash injection
 
-The move protocol ([08 §4](08-apply-quarantine-verify.md#4-the-move-protocol)) is instrumented with named crash points (`after_partial_write`, `after_rename_partial`, `after_source_delete`, `before_journal`). A test harness runs apply in a subprocess, kills it at each crash point, reruns apply, and asserts:
+The move protocol ([08 §4](08-apply-quarantine-verify.md#4-the-move-protocol)) is instrumented with named crash points (`after_moving_commit`, `after_partial_write`, `after_rename_partial`, `after_source_delete`, `after_rename` for the same-volume rename, `before_journal`), selected by the `PHOTOHAVEN_CRASH_AT` environment variable; `PHOTOHAVEN_FORCE_COPY=1` runs the cross-volume protocol on one volume. Both are test hooks only. A test harness runs apply in a subprocess, kills it at each crash point, reruns apply, and asserts:
 
 - every content is present in the library or quarantine,
 - no `.partial` files remain,
