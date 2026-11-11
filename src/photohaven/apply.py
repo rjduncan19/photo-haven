@@ -20,7 +20,7 @@ import stat as stat_mod
 
 from . import plan as planner, quarantine
 from .config import ConfigError, Library
-from .formats import DELETE_FOLDER, DELETE_README, append_jsonl, manifest_header
+from .formats import DELETE_FOLDER, DELETE_README, ROOT_MARKER, FormatError, RootMarker, append_jsonl, manifest_header
 from .util import (is_inside, is_placeholder, long_path, name_key, new_batch_id, rel_to_path, stat_mtime_us,
                    utc_now)
 
@@ -129,6 +129,23 @@ class Applier:
         if not base:
             raise ApplyError(f"root {root_id} is not mapped on this machine")
         return planner.holding_root(base, self.override)
+
+    def check_markers(self, root_ids: set[str]) -> None:
+        """Before moving anything, every root involved must carry its marker,
+        naming this root of this library (02 "Library and roots"), so a wrong
+        mapping can never move files in the wrong folder."""
+        for rid in sorted(root_ids):
+            r = next((x for x in self.library.roots if x.root_id == rid), None)
+            name = r.name if r else rid
+            p = pathlib.Path(self.roots[rid]) / ROOT_MARKER
+            try:
+                m = RootMarker.read(p)
+            except (OSError, FormatError):
+                raise ApplyError(f"root {name} has no readable root marker at {p}; apply needs it. If this really "
+                                 f"is the root, run 'photohaven scan --adopt-root' to write it.") from None
+            if m.root_id != rid or m.library_id != self.library.library_id:
+                raise ApplyError(f"{self.roots[rid]} is marked as root {m.name} ({m.root_id}), not {name}; "
+                                 "check the mapping in machine.toml")
 
     def check_override(self) -> None:
         if not self.override:
@@ -243,6 +260,7 @@ class Applier:
         res.remaining = len(plan.items) - len(items)
         if not items:
             return res
+        self.check_markers({i.root_id for i in items} | {i.keeper_root_id for i in items})
         force_copy = os.environ.get(FORCE_COPY_ENV) == "1"
         need: dict[str, int] = {}
         for i in items:

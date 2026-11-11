@@ -88,7 +88,7 @@ Deferred from M0/M2/M3 so the base duplicate flow comes first. Exact duplicates 
 Following the checklist in [10 §7](10-testing.md#7-before-touching-the-real-library):
 
 - [ ] Disposable copy of 3–5 real folders, full flow.
-- [ ] Read-only scan of the real library; review the report; note surprises; fix.
+- [ ] Read-only scan of the real library (`init --read-only`, project home outside OneDrive; 04 "First-run read-only mode"); review the report; note surprises; fix.
 - [ ] First small real batch; verify; observe OneDrive; restore; reapply.
 - [ ] Rounds: easiest wins (fully contained generic folders) first, then fully redundant, then overlap, then file-level leftovers.
 - [ ] After the hold period: purge the first batches.

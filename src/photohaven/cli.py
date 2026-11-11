@@ -73,6 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", default="", help="library name (new libraries)")
     s.add_argument("--machine-name")
     s.add_argument("--exiftool", help="path to exiftool(.exe)")
+    s.add_argument("--read-only", action="store_true",
+                   help="write nothing into the roots: no root markers, folder caches kept in local state")
 
     s = sub.add_parser("machine", help="this machine's identity")
     ms = s.add_subparsers(dest="sub", required=True)
@@ -179,7 +181,8 @@ def _dispatch(args) -> int:
     state = args.state or default_state_dir()
     if args.cmd == "init":
         env, notes = app.init(state, args.project_home, args.root, quarantine=args.quarantine,
-                              library_name=args.name, machine_name=args.machine_name, exiftool=args.exiftool)
+                              library_name=args.name, machine_name=args.machine_name, exiftool=args.exiftool,
+                              read_only=args.read_only)
         for n in notes:
             print(n)
         print(f"machine {env.machine.name} ({env.machine.short}); local state {env.state_dir}")
