@@ -18,7 +18,7 @@ The tests have one job above all others: prove that no sequence of commands, cra
   })
   ```
 
-- **Apple metadata fixtures** (ContentIdentifier, BurstUUID in maker notes) can't be produced by Pillow. Options: small public-domain sample files under `tests/fixtures/public/` with their license recorded; or files written with ExifTool from a fixture template. Decide in M1.
+- **Apple metadata fixtures** (ContentIdentifier, BurstUUID in maker notes) can't be produced by Pillow. Options: small public-domain sample files under `tests/fixtures/public/` with their license recorded; or files written with ExifTool from a fixture template. Deferred with Live Photos to [R1](roadmap.md#r1-live-photos-and-raw); nothing in M1–M4 reads these tags.
 - **Content-hash conformance fixtures** (`spec/fixtures/content-hash/`): pairs of files that differ only in metadata, with expected `sha256` and `content_sha256`. Every implementation must reproduce them.
 
 ## 2. Test layers

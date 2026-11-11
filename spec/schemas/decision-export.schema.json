@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/decision-export.schema.json",
+  "title": "One line of decisions-<report_id>.jsonl, the report's Export file. 03 5.3",
+  "description": "Decision records here carry no id, machine_id or seq; decisions import assigns them.",
+  "type": "object",
+  "required": ["record"],
+  "properties": {"record": {"enum": ["header", "decision"]}},
+  "allOf": [
+    {"if": {"properties": {"record": {"const": "header"}}}, "then": {"$ref": "#/$defs/header"}},
+    {"if": {"properties": {"record": {"const": "decision"}}}, "then": {"$ref": "#/$defs/decision"}}
+  ],
+  "$defs": {
+    "header": {
+      "type": "object",
+      "required": ["record", "schema", "kind", "library_id", "report_id", "scan_id", "generated_at"],
+      "properties": {
+        "record": {"const": "header"},
+        "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+        "kind": {"const": "decision-export"},
+        "library_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "report_id": {"$ref": "common.schema.json#/$defs/uuid7"},
+        "scan_id": {"type": "integer", "minimum": 1},
+        "generated_at": {"$ref": "common.schema.json#/$defs/timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": ["record", "at", "phase", "target", "action", "origin", "report_id"],
+      "properties": {
+        "record": {"const": "decision"},
+        "at": {"$ref": "common.schema.json#/$defs/timestamp"},
+        "phase": {"$ref": "decision-log.schema.json#/$defs/phase"},
+        "target": {"$ref": "decision-log.schema.json#/$defs/target"},
+        "action": {"$ref": "decision-log.schema.json#/$defs/action"},
+        "origin": {"const": "report"},
+        "report_id": {"$ref": "common.schema.json#/$defs/uuid7"},
+        "note": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}

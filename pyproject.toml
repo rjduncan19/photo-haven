@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photohaven"
+version = "0.1.0"
+description = "Organize a large family photo library: exact-duplicate removal with quarantine and verification."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []   # stdlib only at runtime; ExifTool is an external executable
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "Pillow>=10", "jsonschema>=4.18"]
+
+[project.scripts]
+photohaven = "photohaven.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+photohaven = ["schema_v1.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "exiftool: needs a real ExifTool (skipped when none is found)",
+    "dupecases: acceptance run against the M0 duplicate-case corpus (set PHOTOHAVEN_DUPECASES)",
+]

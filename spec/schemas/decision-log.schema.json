@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/decision-log.schema.json",
+  "title": "One line of logs/decisions.<machine_short>.jsonl. 03 5.1, 5.2",
+  "type": "object",
+  "required": ["record"],
+  "properties": {"record": {"enum": ["header", "decision"]}},
+  "allOf": [
+    {"if": {"properties": {"record": {"const": "header"}}}, "then": {"$ref": "#/$defs/header"}},
+    {"if": {"properties": {"record": {"const": "decision"}}}, "then": {"$ref": "#/$defs/decision"}}
+  ],
+  "$defs": {
+    "header": {
+      "type": "object",
+      "required": ["record", "schema", "kind", "library_id", "machine_id", "created_at"],
+      "properties": {
+        "record": {"const": "header"},
+        "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+        "kind": {"const": "decision-log"},
+        "library_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "created_at": {"$ref": "common.schema.json#/$defs/timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": ["record", "id", "at", "machine_id", "seq", "phase", "target", "action", "origin"],
+      "properties": {
+        "record": {"const": "decision"},
+        "id": {"$ref": "common.schema.json#/$defs/uuid7"},
+        "at": {"$ref": "common.schema.json#/$defs/timestamp"},
+        "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "seq": {"type": "integer", "minimum": 1},
+        "phase": {"$ref": "#/$defs/phase"},
+        "target": {"$ref": "#/$defs/target"},
+        "action": {"$ref": "#/$defs/action"},
+        "origin": {"enum": ["report", "cli", "import"]},
+        "report_id": {"$ref": "common.schema.json#/$defs/uuid7"},
+        "note": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "phase": {"const": "dedupe", "description": "v1 has only the dedupe phase; later phases add values with a schema bump."},
+    "action": {"enum": ["keep", "remove", "undecided"]},
+    "target": {
+      "type": "object",
+      "required": ["kind", "root_id", "path"],
+      "properties": {
+        "kind": {"enum": ["folder", "file"]},
+        "root_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "path": {"$ref": "common.schema.json#/$defs/relpath"},
+        "scope": {"enum": ["folder", "subtree"]},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "size": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "folder"}}},
+          "then": {"required": ["scope"], "not": {"anyOf": [{"required": ["sha256"]}, {"required": ["size"]}]}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "file"}}},
+          "then": {"required": ["sha256", "size"], "not": {"required": ["scope"]}, "properties": {"path": {"minLength": 1}}}
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/quarantine-log.schema.json",
+  "title": "One line of logs/quarantine.<machine_short>.jsonl. 03 6.1",
+  "type": "object",
+  "required": ["record"],
+  "properties": {"record": {"enum": ["header", "quarantine"]}},
+  "allOf": [
+    {"if": {"properties": {"record": {"const": "header"}}}, "then": {"$ref": "#/$defs/header"}},
+    {"if": {"properties": {"record": {"const": "quarantine"}}}, "then": {"$ref": "#/$defs/event"}}
+  ],
+  "$defs": {
+    "header": {
+      "type": "object",
+      "required": ["record", "schema", "kind", "library_id", "machine_id", "created_at"],
+      "properties": {
+        "record": {"const": "header"},
+        "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+        "kind": {"const": "quarantine-log"},
+        "library_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "created_at": {"$ref": "common.schema.json#/$defs/timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "event_fields": {
+      "description": "Fields shared by quarantine log events and manifest items.",
+      "type": "object",
+      "required": ["id", "at", "machine_id", "seq", "batch_id", "event", "root_id", "path", "sha256", "size", "keeper", "qpath"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/uuid7"},
+        "at": {"$ref": "common.schema.json#/$defs/timestamp"},
+        "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "seq": {"type": "integer", "minimum": 1},
+        "batch_id": {"$ref": "common.schema.json#/$defs/batch_id"},
+        "event": {"enum": ["moved", "verified", "verify_failed", "restored", "purge_refused", "purged"]},
+        "root_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "path": {"$ref": "common.schema.json#/$defs/nonempty_relpath"},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "size": {"type": "integer", "minimum": 0},
+        "keeper": {"$ref": "common.schema.json#/$defs/location"},
+        "qpath": {
+          "description": "<batch_id>/files/<root_id>/<relpath>, relative to the quarantine root (03 6.3).",
+          "allOf": [
+            {"$ref": "common.schema.json#/$defs/nonempty_relpath"},
+            {"pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}/files/[0-9a-f-]{36}/.+$"}
+          ]
+        },
+        "detail": {"type": "string", "minLength": 1}
+      }
+    },
+    "event": {
+      "allOf": [{"$ref": "#/$defs/event_fields"}],
+      "properties": {
+        "record": {"const": "quarantine"},
+        "id": true, "at": true, "machine_id": true, "seq": true, "batch_id": true, "event": true,
+        "root_id": true, "path": true, "sha256": true, "size": true, "keeper": true, "qpath": true, "detail": true
+      },
+      "additionalProperties": false
+    }
+  }
+}

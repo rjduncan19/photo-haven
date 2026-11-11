@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/root-marker.schema.json",
+  "title": "<root>/.photohaven-root.json. 03 2.2",
+  "type": "object",
+  "required": ["schema", "library_id", "root_id", "name", "created_at"],
+  "properties": {
+    "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+    "library_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+    "root_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+    "name": {"type": "string", "minLength": 1},
+    "created_at": {"$ref": "common.schema.json#/$defs/timestamp"}
+  },
+  "additionalProperties": false
+}

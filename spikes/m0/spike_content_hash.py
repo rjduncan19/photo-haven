@@ -86,9 +86,11 @@ def main() -> int:
             t0 = time.perf_counter()
             r["sha_before"] = ph.sha256_file(w)
             r["sha_s"] = time.perf_counter() - t0
-            idh, dt, warn = et.image_data_hash(w)
+            oc = et.hash_check(w)
+            idh, dt, warn = oc["hash"], oc["seconds"], " | ".join(oc["messages"])
             idh_again, _, _ = et.image_data_hash(w)
-            r.update(idh_before=idh, idh_s=dt, idh_warning=warn, idh_deterministic=(idh == idh_again))
+            r.update(idh_before=idh, idh_s=dt, idh_warning=warn, idh_deterministic=(idh == idh_again),
+                     orig_flagged_damaged=oc["damaged"])
 
             # Edit 1: one write carrying the rating and the provenance fields.
             ok1, msg1 = write_tags(et, w, {
@@ -121,7 +123,9 @@ def main() -> int:
             shutil.copy2(src, t)
             with open(t, "r+b") as f:
                 f.truncate(max(1, r["size"] // 2))
-            r["idh_truncated"], _, r["truncated_warning"] = et.image_data_hash(t)
+            tc = et.hash_check(t)
+            r["idh_truncated"], r["truncated_warning"] = tc["hash"], " | ".join(tc["messages"])
+            r["truncated_flagged_damaged"] = tc["damaged"]
             t.unlink()
 
             idhs = [r["idh_before"], r["idh_after1"]] + ([r["idh_after2"]] if ok2 else []) + ([r["idh_after3"]] if ok3 else [])
@@ -145,7 +149,7 @@ def main() -> int:
 
     summary = {"env": ph.env_info(), "exiftool": et.version, "by_category": {}}
     print("\nSummary by type")
-    print(f"  {'type':<6} {'n':>4} {'PASS':>5} {'FAIL':>5} {'NOHASH':>6} {'WFAIL':>5} {'phv_ok':>6} {'same-size':>9} {'sha MB/s':>9} {'idh MB/s':>9}")
+    print(f"  {'type':<6} {'n':>4} {'PASS':>5} {'FAIL':>5} {'NOHASH':>6} {'WFAIL':>5} {'phv_ok':>6} {'same-size':>9} {'trunc!':>6} {'orig!':>5} {'sha MB/s':>9} {'idh MB/s':>9}")
     for cat in TESTED:
         rs = [r for r in rows if r["category"] == cat]
         if not rs:
@@ -158,6 +162,8 @@ def main() -> int:
             "et_readback_ok": sum(bool(r["readback_et_hash_ok"]) for r in rs),
             "size_unchanged_after_write": sum(bool(r["size_unchanged_after_write"]) for r in rs),
             "truncated_returned_hash": sum(r["idh_truncated"] is not None for r in rs),
+            "truncated_flagged_damaged": sum(bool(r["truncated_flagged_damaged"]) for r in rs),
+            "originals_flagged_damaged": sum(bool(r["orig_flagged_damaged"]) for r in rs),
             "sha_mb_s": mb / max(1e-9, sum(r["sha_s"] for r in rs)),
             "idh_mb_s": mb / max(1e-9, sum(r["idh_s"] for r in rs)),
         }
@@ -165,12 +171,14 @@ def main() -> int:
         v = s["verdicts"]
         print(f"  {cat:<6} {s['n']:>4} {v.get('PASS', 0):>5} {v.get('FAIL', 0):>5} {v.get('NO_HASH', 0):>6} "
               f"{v.get('WRITE_FAILED', 0):>5} {s['phv_readback_ok']:>6} {s['size_unchanged_after_write']:>9} "
+              f"{s['truncated_flagged_damaged']:>6} {s['originals_flagged_damaged']:>5} "
               f"{s['sha_mb_s']:>9.0f} {s['idh_mb_s']:>9.0f}")
     ph.write_json(res / "summary.json", summary)
     shutil.rmtree(work, ignore_errors=True)
     print(f"\nResults: {res}")
     print("D-05 holds if every type you care about is all PASS. Any 'same-size' count > 0 means a "
-          "metadata write can leave file size unchanged (the cache must not rely on size alone).")
+          "metadata write can leave file size unchanged (the cache must not rely on size alone). "
+          "'trunc!' should equal n (every truncated copy flagged damaged); 'orig!' should be 0.")
     return 0
 
 

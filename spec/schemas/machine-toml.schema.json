@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/machine-toml.schema.json",
+  "title": "machine.toml (local state), validated after TOML parsing. 03 2.6",
+  "type": "object",
+  "required": ["schema", "name", "project_home"],
+  "properties": {
+    "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+    "name": {"type": "string", "minLength": 1},
+    "project_home": {"type": "string", "minLength": 1},
+    "quarantine_root": {"type": "string", "minLength": 1},
+    "exiftool": {"type": "string", "minLength": 1},
+    "hash_threads": {"type": "integer", "minimum": 1},
+    "exiftool_processes": {"type": "integer", "minimum": 1},
+    "cache_placement": {"enum": ["in_folder", "local_only"]},
+    "roots": {
+      "description": "root_id -> this machine's absolute local path",
+      "type": "object",
+      "propertyNames": {"$ref": "common.schema.json#/$defs/uuid4"},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    }
+  },
+  "additionalProperties": false
+}

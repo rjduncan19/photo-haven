@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,13 @@ MEDIA = {
 }
 
 CHUNK = 1024 * 1024
+
+# ExifTool warnings that mean the file's bytes are damaged (seen in spike A on
+# truncated JPEG, HEIC, PNG, MOV/MP4 copies), not merely odd metadata.
+DAMAGE_PATTERNS = re.compile(
+    r"format error|error reading|truncated|corrupt|unexpected end|bad .*(header|data)|missing .*data",
+    re.IGNORECASE,
+)
 
 
 def utc_now() -> str:
@@ -169,7 +177,9 @@ class ExifTool:
 
     def run(self, args: list[str]) -> str:
         self.n += 1
-        payload = "\n".join(["-charset", "filename=utf8", *args, f"-execute{self.n}", ""])
+        # WindowsLongPath lets ExifTool open paths over 260 characters (pass the plain path, no \\?\ prefix).
+        long_path = ["-api", "WindowsLongPath=1"] if IS_WINDOWS else []
+        payload = "\n".join(["-charset", "filename=utf8", *long_path, *args, f"-execute{self.n}", ""])
         assert self.proc.stdin and self.proc.stdout
         self.proc.stdin.write(payload.encode("utf-8"))
         self.proc.stdin.flush()
@@ -198,13 +208,39 @@ class ExifTool:
             return [{"_raw": out}]
 
     def image_data_hash(self, path: pathlib.Path) -> tuple[str | None, float, str | None]:
-        """Return (sha256 of image data, seconds, warning/error)."""
+        """Return (sha256 of image data, seconds, all warnings/errors joined by ' | ')."""
+        h = self.hash_check(path)
+        return h["hash"], h["seconds"], (" | ".join(h["messages"]) or None)
+
+    def hash_check(self, path: pathlib.Path) -> dict:
+        """ImageDataHash plus EVERY ExifTool warning/error, and whether the file looks damaged.
+
+        -a with -G4 is required: JSON output otherwise keeps only the first
+        Warning, and a harmless "[minor]" warning can hide "JPEG format error"
+        (see docs/spikes/m0-results.md, spike A). Warnings are sorted three ways:
+          damaged: any Error, or a Warning matching DAMAGE_PATTERNS (truncation,
+                   format errors, unreadable image data). The hash must not be trusted.
+          suspect: any other Warning not tagged "[minor]" (e.g. "IPTCDigest is not
+                   current", seen on an intact iPhone JPEG). Recorded; hash still used.
+          minor:   "[minor]" warnings. Ignored.
+        A damaged file may still return a hash (spike A: 93 of 93 truncated stills did).
+        """
         t0 = time.perf_counter()
-        res = self.json(["-api", "ImageHashType=SHA256", "-ImageDataHash", "-Warning", "-Error", str(path)])
+        res = self.json(["-a", "-G4", "-api", "ImageHashType=SHA256",
+                         "-ImageDataHash", "-Warning", "-Error", str(path)])
         dt = time.perf_counter() - t0
         rec = res[0] if res else {}
-        warn = rec.get("Error") or rec.get("Warning") or rec.get("_raw")
-        return rec.get("ImageDataHash"), dt, warn
+        tag = lambda k: k.rsplit(":", 1)[-1]
+        warnings = [v for k, v in rec.items() if tag(k) == "Warning"]
+        errors = [v for k, v in rec.items() if tag(k) == "Error"]
+        if "_raw" in rec:
+            errors.append(rec["_raw"])
+        idh = next((v for k, v in rec.items() if tag(k) == "ImageDataHash"), None)
+        major = [str(w) for w in warnings if not str(w).startswith("[minor]")]
+        serious = [str(e) for e in errors] + [w for w in major if DAMAGE_PATTERNS.search(w)]
+        suspect = [w for w in major if not DAMAGE_PATTERNS.search(w)]
+        return {"hash": idh, "seconds": dt, "messages": [str(m) for m in errors + warnings],
+                "damaged": bool(serious), "serious": serious, "suspect": suspect}
 
     def close(self) -> None:
         try:

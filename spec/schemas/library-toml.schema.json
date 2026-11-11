@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/library-toml.schema.json",
+  "title": "library.toml (project home, shared settings), validated after TOML parsing. 03 2.5",
+  "type": "object",
+  "required": ["schema"],
+  "properties": {
+    "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+    "scan": {
+      "type": "object",
+      "properties": {
+        "mtime_tolerance_us": {"type": "integer", "minimum": 0},
+        "hash_scope": {"enum": ["candidates", "all"]},
+        "ignore_names": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
+    "media": {
+      "type": "object",
+      "properties": {
+        "image": {"$ref": "#/$defs/ext_list"},
+        "raw": {"$ref": "#/$defs/ext_list"},
+        "video": {"$ref": "#/$defs/ext_list"},
+        "sidecar": {"$ref": "#/$defs/ext_list"}
+      },
+      "additionalProperties": false
+    },
+    "folders": {
+      "type": "object",
+      "properties": {
+        "generic_names": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "generic_patterns": {"type": "array", "items": {"type": "string", "format": "regex"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ext_list": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/extension"}, "uniqueItems": true}
+  }
+}

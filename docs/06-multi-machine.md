@@ -33,7 +33,7 @@ Costs, accepted: one small hidden file per machine per media folder (a few thous
 
 ## 3. Reusing cached facts
 
-For a file on disk with current `size` *S* and `mtime_us` *M*, the scanner collects every cache record with the same name key in that folder, from every machine's cache file (in-folder and local-only). A record is **usable** if:
+For a file on disk with current `size` *S* and `mtime_us` *M*, the scanner collects every cache record in that folder, from every machine's cache file (in-folder and local-only), whose `name` equals the file's name exactly. If there are none, it falls back to records with the same name key (`casefold(NFC(name))`), but only when exactly one file on disk in that folder has that key; with an NFC/NFD or case collision ([03 §1.6](03-format-spec.md#16-paths)) there is no fallback. A record is **usable** if:
 
 - `size == S`, **and**
 - `|mtime_us − M| ≤ mtime_tolerance_us`, **and**

@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/folder-cache.schema.json",
+  "title": "One line of .photohaven-cache.<machine_short>.jsonl. 03 3",
+  "description": "Line 1 is a header record; every other line is a file record, sorted by casefold(NFC(name)), ties broken by raw name.",
+  "type": "object",
+  "required": ["record"],
+  "properties": {"record": {"enum": ["header", "file"]}},
+  "allOf": [
+    {"if": {"properties": {"record": {"const": "header"}}}, "then": {"$ref": "#/$defs/header"}},
+    {"if": {"properties": {"record": {"const": "file"}}}, "then": {"$ref": "#/$defs/file"}}
+  ],
+  "$defs": {
+    "header": {
+      "type": "object",
+      "required": ["record", "schema", "kind", "library_id", "root_id", "folder", "machine_id", "written_at", "tool"],
+      "properties": {
+        "record": {"const": "header"},
+        "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+        "kind": {"const": "folder-cache"},
+        "library_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "root_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "folder": {"$ref": "common.schema.json#/$defs/relpath"},
+        "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "written_at": {"$ref": "common.schema.json#/$defs/timestamp"},
+        "tool": {"$ref": "common.schema.json#/$defs/tool"}
+      },
+      "additionalProperties": false
+    },
+    "file": {
+      "type": "object",
+      "required": ["record", "name", "size", "mtime_us", "media", "sha256", "observed_at"],
+      "properties": {
+        "record": {"const": "file"},
+        "name": {"$ref": "common.schema.json#/$defs/file_name"},
+        "size": {"type": "integer", "minimum": 0},
+        "mtime_us": {"$ref": "common.schema.json#/$defs/time_us"},
+        "ctime_us": {"$ref": "common.schema.json#/$defs/time_us"},
+        "media": {"$ref": "common.schema.json#/$defs/media"},
+        "sha256": {"oneOf": [{"$ref": "common.schema.json#/$defs/sha256"}, {"type": "null"}]},
+        "content_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "content_hash_impl": {"type": "string", "pattern": "^[a-z0-9._-]+/[^/]+/[A-Za-z0-9._-]+$"},
+        "meta": {"$ref": "#/$defs/meta"},
+        "meta_impl": {"type": "string", "pattern": "^[a-z0-9._-]+/[^;]+(;[a-z0-9._-]+/[^;]+)*$"},
+        "observed_at": {"$ref": "common.schema.json#/$defs/timestamp"},
+        "skip": {"enum": ["cloud_only", "unreadable", "locked", "too_large"]}
+      },
+      "additionalProperties": false,
+      "dependentRequired": {
+        "content_sha256": ["content_hash_impl"],
+        "content_hash_impl": ["content_sha256"],
+        "meta": ["meta_impl"]
+      },
+      "allOf": [
+        {
+          "description": "sha256 is null exactly when skip is set",
+          "if": {"required": ["skip"]},
+          "then": {"properties": {"sha256": {"type": "null"}}},
+          "else": {"properties": {"sha256": {"type": "string"}}}
+        },
+        {
+          "description": "a damaged file has no content hash (03 8.1)",
+          "if": {"required": ["meta"], "properties": {"meta": {"required": ["damaged"], "properties": {"damaged": {"const": true}}}}},
+          "then": {"not": {"anyOf": [{"required": ["content_sha256"]}, {"required": ["content_hash_impl"]}]}}
+        },
+        {
+          "description": "no hashes or metadata without the file hash",
+          "if": {"properties": {"sha256": {"type": "null"}}},
+          "then": {"not": {"anyOf": [{"required": ["content_sha256"]}, {"required": ["meta"]}]}}
+        }
+      ]
+    },
+    "meta": {
+      "description": "03 3.3. All fields optional; writers omit absent values (03 1.1).",
+      "type": "object",
+      "properties": {
+        "taken_local": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?$"},
+        "taken_offset": {"type": "string", "pattern": "^[+-]([01][0-9]|2[0-3]):[0-5][0-9]$"},
+        "taken_utc": {"$ref": "common.schema.json#/$defs/timestamp"},
+        "taken_source": {"enum": ["exif_original", "exif_digitized", "quicktime_creationdate", "quicktime_createdate", "xmp_datecreated", "filename", "mtime"]},
+        "make": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "lens": {"type": "string", "minLength": 1},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "orientation": {"type": "integer", "minimum": 1, "maximum": 8},
+        "gps_lat": {"type": "number", "minimum": -90, "maximum": 90},
+        "gps_lon": {"type": "number", "minimum": -180, "maximum": 180},
+        "gps_alt": {"type": "number"},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "mime": {"type": "string", "pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$"},
+        "apple_content_id": {"type": "string", "minLength": 1},
+        "apple_burst_id": {"type": "string", "minLength": 1},
+        "xmp_original_image_hash": {"$ref": "common.schema.json#/$defs/sha256"},
+        "xmp_ingest_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "damaged": {"const": true, "description": "Written only when true; absent means false."},
+        "exiftool_messages": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1}
+      },
+      "additionalProperties": false,
+      "dependentRequired": {"taken_offset": ["taken_local"], "taken_local": ["taken_source"]}
+    }
+  }
+}

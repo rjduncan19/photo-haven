@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/common.schema.json",
+  "title": "Shared definitions (docs/03 section 1)",
+  "$defs": {
+    "uuid4": {
+      "description": "UUIDv4, lowercase, hyphenated (library, root, machine IDs). 03 1.7",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "uuid7": {
+      "description": "UUIDv7, lowercase, hyphenated (log record, plan and report IDs). 03 1.7",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "description": "UTC event time, always six fractional digits and Z. 03 1.2",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{6}Z$"
+    },
+    "time_us": {
+      "description": "Filesystem time, integer microseconds since the Unix epoch (UTC). 03 1.3",
+      "type": "integer"
+    },
+    "sha256": {
+      "description": "Lowercase hex SHA-256. 03 1.5",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relpath": {
+      "description": "Root-relative path: '/' separators, no leading or trailing '/', no empty, '.' or '..' components, no backslash. The root itself is ''. 03 1.6",
+      "type": "string",
+      "pattern": "^$|^(?!\\.\\.?(/|$))(?!.*/\\.\\.?(/|$))[^/\\\\]+(/[^/\\\\]+)*$"
+    },
+    "nonempty_relpath": {
+      "allOf": [{"$ref": "#/$defs/relpath"}, {"minLength": 1}]
+    },
+    "file_name": {
+      "description": "A single path component as the filesystem returned it.",
+      "type": "string",
+      "pattern": "^(?!\\.\\.?$)[^/\\\\]+$"
+    },
+    "machine_short": {
+      "description": "First 12 hex digits of machine_id without hyphens. 03 1.7",
+      "type": "string",
+      "pattern": "^[0-9a-f]{12}$"
+    },
+    "batch_id": {
+      "description": "YYYYMMDD-HHMMSS- plus 4 random hex digits (UTC). 03 1.7",
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+    },
+    "tool": {
+      "description": "Writing program and version, e.g. photohaven/0.1.0.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*/[0-9A-Za-z.+_-]+$"
+    },
+    "schema_v1": {
+      "const": 1
+    },
+    "media": {
+      "enum": ["image", "raw", "video", "sidecar", "other"]
+    },
+    "root_kind": {
+      "enum": ["onedrive", "local", "removable"]
+    },
+    "extension": {
+      "description": "Lowercase extension without the dot.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+$"
+    },
+    "location": {
+      "description": "A library path: (root_id, relpath). 03 1.6",
+      "type": "object",
+      "required": ["root_id", "path"],
+      "properties": {
+        "root_id": {"$ref": "#/$defs/uuid4"},
+        "path": {"$ref": "#/$defs/nonempty_relpath"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

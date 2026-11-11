@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rjduncan19.github.io/photo-haven/spec/v1/quarantine-manifest.schema.json",
+  "title": "One line of <quarantine_root>/<batch_id>/manifest.jsonl. 03 6.2",
+  "description": "Header, then one item per moved file with the same fields as a quarantine log 'moved' event. Enough to restore with the project home and DB gone.",
+  "type": "object",
+  "required": ["record"],
+  "properties": {"record": {"enum": ["header", "item"]}},
+  "allOf": [
+    {"if": {"properties": {"record": {"const": "header"}}}, "then": {"$ref": "#/$defs/header"}},
+    {"if": {"properties": {"record": {"const": "item"}}}, "then": {"$ref": "#/$defs/item"}}
+  ],
+  "$defs": {
+    "header": {
+      "type": "object",
+      "required": ["record", "schema", "kind", "batch_id", "library_id", "machine_id", "plan_id", "created_at"],
+      "properties": {
+        "record": {"const": "header"},
+        "schema": {"$ref": "common.schema.json#/$defs/schema_v1"},
+        "kind": {"const": "quarantine-manifest"},
+        "batch_id": {"$ref": "common.schema.json#/$defs/batch_id"},
+        "library_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "machine_id": {"$ref": "common.schema.json#/$defs/uuid4"},
+        "plan_id": {"$ref": "common.schema.json#/$defs/uuid7"},
+        "created_at": {"$ref": "common.schema.json#/$defs/timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "item": {
+      "allOf": [{"$ref": "quarantine-log.schema.json#/$defs/event_fields"}],
+      "properties": {
+        "record": {"const": "item"},
+        "event": {"const": "moved"},
+        "id": true, "at": true, "machine_id": true, "seq": true, "batch_id": true,
+        "root_id": true, "path": true, "sha256": true, "size": true, "keeper": true, "qpath": true, "detail": true
+      },
+      "additionalProperties": false
+    }
+  }
+}
