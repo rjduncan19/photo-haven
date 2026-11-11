@@ -31,6 +31,15 @@ Unsettled items are listed by the flush dry run with the reason.
 
 **OneDrive cost:** each written file changes, and OneDrive may re-upload it in full. Flush in batches (a folder or a month at a time) and watch the upload, rather than rating 50,000 files in one go.
 
+## Copies that carry meaning (design directions A, D, E; 2026-11-11)
+
+Phase 1 now *keeps* curated, purpose, received and shared-looking copies ([07 §4b](07-report-and-decisions.md#4b-folder-roles-and-sharing)). Their meaning is the real asset, and later phases should capture it so the copies become optional:
+
+- **A. Capture before removing.** Turn folder meaning into data: `5 Star Pictures` → rating 5, `4 Star Pictures` → rating 4 (Rick's folders are a rating system), `BestOf`/`Favs` → a "favorites" album or label, `Card`/`Craigslist`/`Yearbook` → albums named by purpose, `From Jacky` → provenance. Folder membership is already kept per content (`content_folder_names`); ratings reach the originals only through the gated rating step above. Only once captured is a copy just a copy.
+- **D. Albums without copies.** The long-term answer to curation, purpose sets and photos filed twice is one physical file plus ratings, keywords and albums. **Exception: shared subsets.** A OneDrive share is folder-based, so a subset shared with other people may have to stay a real folder of copies; Photo Haven should treat it as an *intentional copy* (never suggested for removal, left out of reclaimable totals). Optional later: read actual sharing through the OneDrive API (needs the user's sign-in; opt-in).
+- **E. Libraries owned by different people.** The same photo in Rick's and Karen's roots may be intentional on both sides. Default: don't suggest removing across roots, only within one; the owner's copy is the keeper.
+- **Open question for Rick:** for a shoot filed both by date and by event, which filing is canonical in the restructured library (the other becomes an album)?
+
 ## Phase 2: Restructure
 
 **Goal:** a new, uniform library built *alongside* the old one, with originals untouched until Rick is satisfied.

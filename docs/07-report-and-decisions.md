@@ -77,6 +77,29 @@ The descriptive-name comparison uses the rules in [05 §7](05-file-relationships
 - **Coherence.** After the per-folder rules, if every folder holding some content is suggested for removal, the best-ranked of them is suggested for keeping instead. Accepting every suggestion therefore never asks to remove every copy. The planner enforces the last-copy invariant anyway ([08 §2](08-apply-quarantine-verify.md#2-choosing-keepers)); this keeps the suggestions honest.
 - **Accept suggestions** per section turns the shown suggestions into decisions in one click; nothing is exported until the human clicks Export.
 
+## 4b. Folder roles and sharing
+
+*Added 2026-11-11, from the first full-library run ([run notes](runs/2026-11-11-testpicsfull.md)).* Copies are not all clutter. Some are information stored as copies, and removing them would lose it. `photohaven.roles` guesses why each folder holding copies exists, shows the evidence, and the suggestion follows:
+
+| Role | Evidence (any of) | Example from the library | Suggestion |
+|---|---|---|---|
+| Curated selection | name words (best, fav, star, picks, select, final, top, …); photos drawn from ≥ 4 different source folders; a selection inside its own source; a small slice (< 40%) of its main source | `BestOf`, `4 Star Pictures` (180 photos from 32 folders), `Ward Summer 2016/Favs` | keep, ask about sharing |
+| Made for a purpose | name words (card, craigslist, yearbook, print, wallpaper, attachments, …) | `Card`, `Craigslist`, `Yearbook` | keep, ask about sharing |
+| Received from someone | "From X" where X isn't a device | `Hong Kong From Jacky December 2012` | keep, ask about sharing |
+| Shared album | name words (shared, share, public; "album" in a short name); a name starting "For X" | `Shared Album`, `For Grandma` | undecided, ask about sharing |
+| Filed twice | ≥ half of the shared photos have different file names (ignoring ` (1)`, ` - Copy`, extension spelling) | `2011-05-02 Welcome Tallulah` vs `2011-05-10` (161 photos) | undecided |
+| Backup / re-import | holds ≥ 80% of one source folder, and none of the above | `Fiona Senior` vs `2026 Fiona Senior Portraits` | as in §4 |
+
+The "drawn from N folders" count is the number of source folders needed to cover the folder's copies, not the number of folders holding copies: a backup of one folder stays a backup however many other backups hold the same photos. Size-based signals need at least 5 shared photos; names count at any size. Word lists and thresholds are pinned in code (`ROLES_VERSION`).
+
+**Sharing.** Nothing on disk records OneDrive sharing, and moving a file out of a shared folder removes it from what the people it's shared with see (even though OneDrive treats it as a true move). So the report asks "Shared with others?" for every curated, purpose, received or shared-looking folder:
+
+- *Yes* exports a `keep` decision on the folder's subtree with the note `shared with others`. The whole folder stays, whatever other decisions say about its parts (07 §5: a subtree keep is overridden only by file-level decisions).
+- *No* is remembered in that browser only; the folder's own suggestion still applies.
+- For a permanent mark, `photohaven protect ROOT:path` adds the folder to the root's `protected_folders` in `library.json`; folder and subtree removes are then ignored inside it, as for intake folders. `protect … --off` removes it.
+
+Roles are advisory and need no spec change: what applies is still the human's keep or remove decision.
+
 ## 5. Resolving effective decisions
 
 For an instance at `(root_id, relpath)` with content `sha256`, in phase `dedupe`, the effective action is chosen in this order:

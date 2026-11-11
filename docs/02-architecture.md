@@ -93,6 +93,7 @@ photohaven scan [--root NAME] [--folder RELPATH] [--no-folder-cache] [--hash-sco
 photohaven status                         # counts, last scan, pending decisions, quarantine totals
 photohaven report [--out DIR] [--open]
 photohaven decisions import FILE | list [--target PATH] | show-effective PATH
+photohaven protect ROOT:PATH [--off]     # protect a folder tree (e.g. shared with others)
 photohaven plan [--decisions FILE]        # dry run: what would move, space saved, blocked items
 photohaven apply [--decisions FILE] [--execute] [--batch-limit N]
 photohaven verify [--batch ID]

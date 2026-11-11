@@ -46,8 +46,10 @@
       report_id: D.reportId, scan_id: D.scanId, generated_at: nowTs() })];
     const items = Object.values(decisions).sort((a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : 0);
     for (const d of items) {
-      lines.push(canonical({ record: "decision", at: d.at, phase: "dedupe", target: d.target, action: d.action,
-        origin: "report", report_id: D.reportId }));
+      const rec = { record: "decision", at: d.at, phase: "dedupe", target: d.target, action: d.action,
+        origin: "report", report_id: D.reportId };
+      if (d.note) rec.note = d.note;
+      lines.push(canonical(rec));
     }
     return lines.join("\n") + "\n";
   }
@@ -97,8 +99,27 @@
     const s = scope === "subtree" ? f.subsugg : f.sugg;
     return picker(folderKey(f, scope), folderTarget(f, scope), s, f.locked && scope === "folder" && s && s.l);
   }
+  const SHARED_NOTE = "shared with others";
+  // answers to the sharing question that aren't decisions ("no") stay in this browser only
+  let answers = {};
+  try { answers = JSON.parse(localStorage.getItem(STORE + ":answers") || "{}"); } catch (e) { answers = {}; }
+  function saveAnswers() { try { localStorage.setItem(STORE + ":answers", JSON.stringify(answers)); } catch (e) { /* ignore */ } }
   document.addEventListener("change", function (e) {
     const el = e.target;
+    if (el.tagName === "SELECT" && el.dataset.shared) {
+      // C: a shared folder is kept whole (a subtree keep, with the reason in the note)
+      const key = el.dataset.shared, target = JSON.parse(el.dataset.target);
+      const wasShared = decisions[key] && decisions[key].note === SHARED_NOTE;
+      if (el.value === "yes") {
+        decisions[key] = { target: target, action: "keep", at: nowTs(), note: SHARED_NOTE };
+        delete answers[key];
+      } else {
+        if (wasShared) delete decisions[key];
+        if (el.value === "no") answers[key] = "no"; else delete answers[key];
+      }
+      saveAnswers(); save(); render();
+      return;
+    }
     if (el.tagName !== "SELECT" || !el.dataset.key) return;
     setDecision(el.dataset.key, JSON.parse(el.dataset.target), el.value);
     el.className = el.value ? "set-" + el.value : "";
@@ -139,6 +160,28 @@
     return '<table><thead><tr><th>Folder</th><th class="num">Files</th><th class="num">Size</th><th class="num">Reclaimable</th><th>Suggestion</th><th>Decision</th></tr></thead><tbody>' +
       rows.join("") + "</tbody></table>";
   }
+  const ROLE_LABEL = { curation: "curated selection", purpose: "made for a purpose", received: "received from someone",
+    shared: "shared album?", refiled: "filed twice", backup: "backup" };
+  function sharedPicker(f) {
+    const key = folderKey(f, "subtree");
+    const cur = decisions[key];
+    const val = cur && cur.note === SHARED_NOTE ? "yes" : (answers[key] || "");
+    return '<select data-shared="' + esc(key) + '" data-target="' + esc(JSON.stringify(folderTarget(f, "subtree"))) + '">' +
+      [["", "Shared with others? —"], ["yes", "Yes: keep this whole folder"], ["no", "No, not shared"]]
+        .map((o) => '<option value="' + o[0] + '"' + (o[0] === val ? " selected" : "") + ">" + esc(o[1]) + "</option>").join("") +
+      "</select>";
+  }
+  function specialRows(ids) {
+    if (!ids.length) return '<p class="empty">None.</p>';
+    return '<table><thead><tr><th>Folder</th><th>Looks like</th><th class="num">Files</th><th>Suggestion</th><th>Decision</th></tr></thead><tbody>' +
+      ids.map((id) => {
+        const f = F[id], r = f.role;
+        return "<tr><td>" + pathHtml(f) + thumbsHtml(f.thumbs) + '</td><td><span class="tag">' + esc(ROLE_LABEL[r.r] || r.r) + "</span>" +
+          '<div class="reason">' + r.ev.map(esc).join("<br>") + "</div></td><td class=\"num\">" + f.files + "</td><td>" + suggHtml(f.sugg) +
+          "</td><td>" + folderPicker(f, "folder") + (r.q ? "<div>" + sharedPicker(f) + "</div>" : "") +
+          ' <button class="link" data-detail="' + id + '">files</button></td></tr>';
+      }).join("") + "</tbody></table>";
+  }
   function containedIn(f) {
     if (!f.sugg || f.sugg.o == null) return "";
     return '<div class="reason">contained in ' + pathHtml(F[f.sugg.o]) + "</div>";
@@ -153,6 +196,7 @@
     $("#subtitle").textContent = (D.libraryName || D.libraryId) + " · report " + D.generatedAt.slice(0, 19).replace("T", " ") + " UTC · " + D.machine;
     const nav = [["summary", "Summary"], ["contained", "Easiest wins (" + S.contained.length + ")"], ["trees", "Redundant trees (" + S.trees.length + ")"],
       ["redundant", "Fully redundant (" + S.redundant.length + ")"], ["overlap", "Overlap (" + S.overlap.length + ")"],
+      ["special", "Curated & special folders (" + (S.special || []).length + ")"],
       ["internal", "Copies inside a folder (" + S.internal.length + ")"], ["contentEquiv", "Same picture, different bytes (" + S.contentEquiv.length + ")"],
       ["warnings", "Warnings (" + (S.warnings.length + S.orphaned.length) + ")"], ["tree", "All folders"]];
     $("#nav").innerHTML = nav.map((n) => '<a href="#' + n[0] + '">' + esc(n[1]) + "</a>").join("");
@@ -175,6 +219,11 @@
       : '<p class="empty">None.</p>';
     h += head("internal", "Copies inside one folder", "Identical files whose only copies are in the same folder (for example “- Copy” or “(1)”). Decide per file in the folder's file list; one copy always stays.");
     h += folderRows(S.internal, "folder");
+    h += head("special", "Curated & special folders",
+      "Copies that look deliberate: a selection, a set made for a purpose, photos received from someone, a shared album, or the same shoot filed twice. " +
+      "Removing them would lose that meaning, so they aren't suggested for removal. If a folder is shared with other people, say so: " +
+      "the whole folder is then kept, because moving a file out of a shared folder removes it from what they see.");
+    h += specialRows(S.special || []);
     h += head("contentEquiv", "Same picture, different bytes", "Same image data, different metadata (ratings, keywords, dates, GPS). Report only: these are never removed by folder decisions." );
     h += S.contentEquiv.length ? S.contentEquiv.map((g, i) => "<h3>Group " + (i + 1) + (g.differs.length ? ' <span class="tag">differs: ' + esc(g.differs.join(", ")) + "</span>" : "") +
       (g.sameTime ? "" : ' <span class="tag red">different capture times: maybe different photos</span>') + "</h3><table><thead><tr><th>File</th><th>Taken</th><th>Camera</th><th>GPS</th><th class=\"num\">Size</th></tr></thead><tbody>" +

@@ -131,10 +131,14 @@ def build(conn: sqlite3.Connection, library: Library, *, state_dir: pathlib.Path
             "sub": {"files": s.files, "bytes": s.bytes, "dup": s.dup_files, "dupBytes": s.dup_bytes,
                     "unhashed": s.unhashed, "n": s.folders_with_files, "redundant": s.redundant or None},
             "sugg": _sugg(sg), "subsugg": _sugg(ssg), "thumbs": thumbs or None, "copies": copies or None,
+            "role": ({"r": an.roles[fid].role, "ev": an.roles[fid].evidence, "q": an.roles[fid].ask_shared or None}
+                     if fid in an.roles else None),
         }.items() if v is not None}
 
     # ---- sections (07 §3)
     contained, redundant_spread, internal, trees = [], [], [], []
+    special = sorted((fid for fid, r in an.roles.items() if r.role != "backup"),
+                     key=lambda fid: (an.roles[fid].role, an.folders[fid].relpath))
     for fid, f in an.folders.items():
         if not f.files:
             continue
@@ -142,7 +146,7 @@ def build(conn: sqlite3.Connection, library: Library, *, state_dir: pathlib.Path
         if b is not None:
             if suggest(an, fid).action == "remove":    # contained folders we suggest keeping stay out of "wins"
                 contained.append(fid)
-        elif f.redundant:
+        elif f.redundant and suggest(an, fid).action == "remove":   # kept special folders are listed apart
             redundant_spread.append(fid)
         if f.internal_extra:
             internal.append(fid)
@@ -193,6 +197,7 @@ def build(conn: sqlite3.Connection, library: Library, *, state_dir: pathlib.Path
             "sections": {"contained": contained[:SECTION_LIMIT], "redundant": redundant_spread[:SECTION_LIMIT],
                          "trees": trees[:SECTION_LIMIT], "overlap": overlap[:SECTION_LIMIT],
                          "internal": internal[:SECTION_LIMIT], "contentEquiv": content_equiv[:SECTION_LIMIT],
+                         "special": special[:SECTION_LIMIT],
                          "warnings": warn[:SECTION_LIMIT], "orphaned": orphan}}
 
     # ---- detail shards
