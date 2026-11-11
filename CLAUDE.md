@@ -6,7 +6,7 @@ Photo Haven organizes a large family photo library (about 300–400 GB, 20+ year
 
 These protect irreplaceable family photos. Any code that could violate them is a bug, even if a test passes.
 
-1. **Never delete a library file.** Removal is always a *move to quarantine*. Only `purge` deletes, only from quarantine, and only after a fresh byte-for-byte compare against a surviving keeper (docs/08).
+1. **Never delete a library file.** Removal is always a *move to quarantine* (each root's `PhotoHaven-DELETE` folder; users never see the word "quarantine", D-10). Only `purge` deletes, only from quarantine, and only after a fresh byte-for-byte compare against a surviving keeper (docs/08).
 2. **Last-copy invariant.** Never quarantine a file unless a byte-identical copy (same SHA-256 *and* byte compare at purge) remains in the library under a non-remove decision. If every instance is marked remove, keep one and report the conflict.
 3. **Never modify originals, except in the rating step.** Dedupe writes nothing inside a library root but its own hidden cache files (`.photohaven-cache.*.jsonl`) and the root marker. No EXIF/XMP writes, renames, or touch-ups to photos. The only code allowed to write into an original is the gated rating flush (docs/09, "Rating step"): settled contents only, one write per file, verified by `ImageDataHash` afterward.
 4. **Don't trigger mass downloads.** Skip OneDrive cloud-only placeholders when hashing; record them as `cloud_only` (docs/04).

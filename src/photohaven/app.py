@@ -73,8 +73,9 @@ def _check_placement(home: pathlib.Path, roots: list[tuple[str, pathlib.Path]], 
     for name, p in roots:
         if is_inside(home, p):
             raise ConfigError(f"the project home {home} is inside root {name} ({p}); put it outside every root")
-        if quarantine and is_inside(quarantine, p):
-            raise ConfigError(f"the quarantine {quarantine} is inside root {name} ({p})")
+        if quarantine and (is_inside(quarantine, p) or is_inside(p, quarantine)):
+            raise ConfigError(f"quarantine_root {quarantine} overlaps root {name} ({p}); leave it unset to use "
+                              f"each root's PhotoHaven-DELETE folder")
         if is_inside(p, home):
             raise ConfigError(f"root {name} ({p}) is inside the project home {home}")
 
@@ -241,7 +242,8 @@ def make_plan(env: Env, decisions_file: pathlib.Path | None = None):
                                 decisions_file)
     if env.library.apply_machine_id == env.machine.machine_id:
         applier.Applier(env).recover()
-    p = planner.make_plan(env.conn, env.library, env.project_home, dict(env.mcfg.roots), env.mcfg.quarantine_root)
+    p = planner.make_plan(env.conn, env.library, env.project_home, dict(env.mcfg.roots),
+                          env.mcfg.quarantine_root or None)
     path = planner.save(env.conn, p, env.state_dir, {r.root_id: r.name for r in env.library.roots})
     return p, path
 
@@ -252,8 +254,8 @@ def apply_execute(env: Env, *, batch_limit: int | None = None, rescan: bool = Tr
     db.backup(env.conn, env.state_dir)
     res = applier.Applier(env).apply(batch_limit=batch_limit, progress=progress)
     if rescan and res.moved:
-        roots = {r[0] for r in env.conn.execute(
-            "SELECT DISTINCT root_id FROM quarantine_items WHERE batch_id = ?", (res.batch_id,))}
+        roots = {r[0] for b in res.batch_ids for r in env.conn.execute(
+            "SELECT DISTINCT root_id FROM quarantine_items WHERE batch_id = ?", (b,))}
         names = [r.name for r in env.library.roots if r.root_id in roots]
         scan(env, ScanOptions(roots=names), use_exiftool=False, progress=progress)
     return res
@@ -345,7 +347,8 @@ def doctor(state_dir: pathlib.Path | None = None) -> list[Check]:
             if is_inside(env.project_home, p):
                 out.append(Check("fail", "project home", f"inside root {r.name}"))
             if env.mcfg.quarantine_root and is_inside(env.mcfg.quarantine_root, p):
-                out.append(Check("fail", "quarantine", f"inside root {r.name}"))
+                out.append(Check("fail", "quarantine_root", f"inside root {r.name}; leave it unset to use "
+                                 "PhotoHaven-DELETE"))
         # identity: registry, clones, short clashes, clock skew
         reg = read_registry(env.project_home)
         mine = reg.get(env.machine.machine_id, {})
@@ -371,8 +374,11 @@ def doctor(state_dir: pathlib.Path | None = None) -> list[Check]:
                              "WHERE state = 'cloud_only'").fetchone()
         if n[0]:
             out.append(Check("warn", "cloud-only files", f"{n[0]} ({n[1]} without facts from any machine)"))
-        if env.mcfg.quarantine_root and "onedrive" in env.mcfg.quarantine_root.lower():
-            out.append(Check("warn", "quarantine", "is inside OneDrive (D-10 is still open)"))
+        if env.mcfg.quarantine_root:
+            out.append(Check("warn", "delete folder", f"machine.toml overrides it: moved duplicates go to "
+                             f"{env.mcfg.quarantine_root} instead of each root's PhotoHaven-DELETE (D-10)"))
+        else:
+            out.append(Check("ok", "delete folder", "PhotoHaven-DELETE at the top of each root"))
     finally:
         env.close()
     return out

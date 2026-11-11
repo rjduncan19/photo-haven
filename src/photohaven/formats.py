@@ -21,6 +21,10 @@ CACHE_PREFIX = ".photohaven-cache."
 CACHE_SUFFIX = ".jsonl"
 ROOT_MARKER = ".photohaven-root.json"
 OWN_FILE_PREFIX = ".photohaven-"
+# D-10: the per-root folder that holds moved duplicates until they are deleted
+# ("quarantine" in the spec's record names). Reserved at the top of every root.
+DELETE_FOLDER = "PhotoHaven-DELETE"
+DELETE_README = "README - PhotoHaven.txt"
 MEDIA_KINDS = ("image", "raw", "video", "sidecar", "other")
 SKIP_REASONS = ("cloud_only", "unreadable", "locked", "too_large")
 

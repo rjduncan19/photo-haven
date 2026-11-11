@@ -99,7 +99,6 @@ def test_dupecases(tmp_path, exiftool_exe):
               for fid, f in an.folders.items() if f.files and (s := analysis.suggest(an, fid)).action != "undecided"
               and not s.locked]
         dec.append(env.conn, env.project_home, env.library.library_id, env.machine.machine_id, ds)
-        env.mcfg.quarantine_root = str(tmp_path / "quarantine")
         hashes_before = {r[0] for r in env.conn.execute(
             "SELECT DISTINCT sha256 FROM files WHERE state = 'present' AND sha256 IS NOT NULL")}
         plan, _ = app.make_plan(env)

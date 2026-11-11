@@ -15,7 +15,7 @@ import sys
 import pytest
 
 from photohaven import app, apply as applier, decisions as dec, formats, plan as planner
-from photohaven.formats import Decision, Target
+from photohaven.formats import DELETE_FOLDER, DELETE_README, Decision, Target
 from photohaven.scan import ScanOptions
 from photohaven.util import is_inside, utc_now
 
@@ -38,8 +38,12 @@ def decide(env, path: str, action: str, *, subtree=True, n=1):
 
 
 def contents(root: pathlib.Path) -> dict[str, list[str]]:
+    """Library files: everything in the root except Photo Haven's own files and its DELETE folder."""
     out: dict[str, list[str]] = {}
     for p in root.rglob("*"):
+        rel = p.relative_to(root)
+        if rel.parts and rel.parts[0] == DELETE_FOLDER:
+            continue
         if p.is_file() and not p.name.startswith(".photohaven-"):
             out.setdefault(hashlib.sha256(p.read_bytes()).hexdigest(), []).append(p.relative_to(root).as_posix())
     return out
@@ -49,7 +53,7 @@ def quarantined(q: pathlib.Path) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     if q.exists():
         for p in q.rglob("*"):
-            if p.is_file() and p.name != "manifest.jsonl":
+            if p.is_file() and p.name not in ("manifest.jsonl", DELETE_README):
                 out.setdefault(hashlib.sha256(p.read_bytes()).hexdigest(), []).append(p.as_posix())
     return out
 
@@ -59,7 +63,7 @@ def ready(lib, fake):
     env, root, tmp = lib
     build_library(root, LIB)
     app.scan(env, ScanOptions(), describer=fake)
-    return env, root, tmp, pathlib.Path(env.mcfg.quarantine_root)
+    return env, root, tmp, root / DELETE_FOLDER
 
 
 def plan_and_apply(env, **kw):
@@ -167,7 +171,8 @@ def test_I1_no_deletes_inside_roots(ready, monkeypatch):
 
     def guard(name):
         def f(path, *a, **k):
-            if is_inside(os.fspath(path).removeprefix("\\\\?\\"), root):
+            p = os.fspath(path).removeprefix("\\\\?\\")
+            if is_inside(p, root) and not is_inside(p, root / DELETE_FOLDER):
                 caller = inspect.stack()[1].function
                 if caller != "_complete_move":
                     raise AssertionError(f"{name}({path}) inside a root from {caller}")
@@ -365,3 +370,53 @@ def test_os_error_mid_move_skips_that_file(ready, monkeypatch):
     assert res.moved == 3 and [p for p, _ in res.skipped] == ["Backup 2019/b.jpg"]
     assert (root / "Backup 2019" / "b.jpg").exists()
     assert not env.conn.execute("SELECT count(*) FROM quarantine_items WHERE state = 'moving'").fetchone()[0]
+
+
+# ------------------------------------------------------------ the DELETE folder (D-10)
+
+def test_delete_folder_is_inside_the_root_skipped_by_scans_and_explained(ready, fake):
+    env, root, tmp, q = ready
+    decide(env, "Backup 2019", "remove")
+    plan_and_apply(env, rescan=True)
+    assert q.parent == root and (q / DELETE_README).exists()
+    readme = (q / DELETE_README).read_text(encoding="utf-8")
+    assert "byte-identical copy" in readme and "photohaven restore" in readme
+    res = app.scan(env, ScanOptions(), describer=fake)
+    assert res.files_hashed == 0
+    assert not env.conn.execute("SELECT count(*) FROM folders WHERE relpath LIKE 'PhotoHaven-DELETE%'").fetchone()[0]
+    assert app.status(env)["dup_groups"]["groups"] == 1     # only Camera Roll + Trip a.jpg; moved copies don't count
+
+
+def test_files_deleted_by_hand_are_recorded_as_purged(ready):
+    env, root, tmp, q = ready
+    decide(env, "Backup 2019", "remove")
+    res = plan_and_apply(env)
+    victim = next(p for p in q.rglob("*.jpg"))
+    victim.unlink()                                        # the user empties some of the DELETE folder
+    a = applier.Applier(env)
+    ok, failed = a.verify()
+    assert not failed
+    assert env.conn.execute("SELECT count(*) FROM quarantine_items WHERE state = 'purged'").fetchone()[0] == 1
+    purged = [e for e in a.journal.events if e.event == "purged"]
+    assert len(purged) == 1 and purged[0].detail == "deleted outside Photo Haven"
+    assert a.verify() == (0, [])                           # recorded once
+
+
+def test_quarantine_root_override(ready, tmp_path):
+    env, root, tmp, q = ready
+    env.mcfg.quarantine_root = str(tmp / "elsewhere")
+    decide(env, "Backup 2019", "remove")
+    res = plan_and_apply(env)
+    assert res.moved == 4 and (tmp / "elsewhere" / res.batch_id / "manifest.jsonl").exists()
+    assert not q.exists()
+    env.mcfg.quarantine_root = str(root / "inside")
+    with pytest.raises(applier.ConfigError, match="overlaps root"):
+        plan_and_apply(env)
+
+
+def test_tidy_leaves_the_delete_folder_alone(ready):
+    env, root, tmp, q = ready
+    decide(env, "Backup 2019/DCIM", "remove")
+    plan_and_apply(env, rescan=True)
+    for d in applier.tidy(env, execute=False):
+        assert DELETE_FOLDER not in d

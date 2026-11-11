@@ -141,9 +141,10 @@ These apply to `local` quarantine mode. In `onedrive` mode, apply is a set of mo
 
 ## 10. Quarantine location
 
-**Open decision** ([D-10](decisions.md#d-10-quarantine-location)): inside OneDrive (outside every root) or on local disk outside OneDrive. Spike C4 decides whether OneDrive syncs an in-OneDrive move as a true move. Either way:
+**Decided** ([D-10](decisions.md#d-10-quarantine-location)): each root's **`PhotoHaven-DELETE`** folder, at the top of the root and so inside OneDrive. Users see "DELETE folder", never "quarantine"; the spec keeps its record names. Batches are per delete folder (one per root per apply run), laid out as in [03 §6.3](03-format-spec.md#63-quarantine-layout) with the delete folder as the quarantine root. The rest of this section describes the alternatives as they were weighed.
 
-- MUST be outside every library root and the project home, so scans never see quarantined files as library files. `init` and `doctor` check this.
+- The delete folder is reserved: the scanner never walks it and `tidy` never touches it, so scans never see moved files as library files. An explicit `quarantine_root` override MUST be outside every library root and the project home; `init` and `doctor` check this.
+- The user may delete the folder's contents by hand; `verify` records those files as `purged` (`deleted outside Photo Haven`).
 - In `onedrive` mode, the quarantine root is a top-level OneDrive folder such as `<OneDrive>\PhotoHaven-quarantine\`. Moves are same-volume renames (§4), cloud-only placeholders can be quarantined without hydrating, and purge deletes go through OneDrive's recycle bin, which is one more safety net.
 - In `local` mode, the following rules apply.
 - SHOULD be on a different physical drive from the library if one is available, so a single drive failure can't take both. On the same volume, moves are instant renames and need no extra space; across volumes, the plan checks free space first.

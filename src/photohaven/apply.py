@@ -1,5 +1,6 @@
 """Apply, recovery, verify, tidy (docs/08). The only code that changes a
-library root, and then only by moving files into quarantine.
+library root, and then only by moving files into its PhotoHaven-DELETE
+folder (D-10; "quarantine" in the spec's record names).
 
 Invariants (08 §1): no deletes in a root except the last step of a
 verified cross-volume move (I-1); a keeper stays for every move (I-2,
@@ -19,7 +20,7 @@ import stat as stat_mod
 
 from . import plan as planner, quarantine
 from .config import ConfigError, Library
-from .formats import append_jsonl, manifest_header
+from .formats import DELETE_FOLDER, DELETE_README, append_jsonl, manifest_header
 from .util import (is_inside, is_placeholder, long_path, name_key, new_batch_id, rel_to_path, stat_mtime_us,
                    utc_now)
 
@@ -41,9 +42,25 @@ def crash_point(name: str) -> None:
         os._exit(77)
 
 
+README_TEXT = """\
+Photo Haven moved duplicate photos and videos here.
+
+Every file in this folder had a byte-identical copy that was kept in your
+library when it was moved, and the move was verified. The kept copy's path
+is recorded in each batch's manifest.jsonl.
+
+  * To free space, delete this folder's contents (or run `photohaven purge`,
+    which compares every file with its kept copy once more before deleting).
+  * To put files back, run `photohaven restore --batch <folder name>`.
+
+Photo Haven never scans this folder as part of your library.
+"""
+
+
 @dataclasses.dataclass
 class ApplyResult:
     batch_id: str | None
+    batch_ids: list[str] = dataclasses.field(default_factory=list)
     plan_id: str | None = None
     moved: int = 0
     moved_bytes: int = 0
@@ -96,8 +113,7 @@ class Applier:
         self.conn: sqlite3.Connection = env.conn
         self.library: Library = env.library
         self.roots = {rid: p for rid, p in env.mcfg.roots.items()}
-        q = env.mcfg.quarantine_root
-        self.qroot = pathlib.Path(q) if q else None
+        self.override = env.mcfg.quarantine_root or None
         self.journal = quarantine.Journal(env.project_home, self.library.library_id, env.machine.machine_id)
 
     # ------------------------------------------------------------- checks
@@ -106,17 +122,26 @@ class Applier:
             raise ApplyError(f"this machine ({self.env.machine.name}) is not the library's apply machine; only "
                              f"{self.library.apply_machine_id} may apply, restore or purge (D-17)")
 
-    def check_quarantine_root(self) -> pathlib.Path:
-        if self.qroot is None:
-            raise ConfigError("no quarantine_root in machine.toml")
+    def holding(self, root_id: str) -> pathlib.Path:
+        """The delete folder for a root: `<root>/PhotoHaven-DELETE`, or the
+        machine-wide override (D-10)."""
+        base = self.roots.get(root_id)
+        if not base:
+            raise ApplyError(f"root {root_id} is not mapped on this machine")
+        return planner.holding_root(base, self.override)
+
+    def check_override(self) -> None:
+        if not self.override:
+            return
         for r in self.library.roots:
             p = self.roots.get(r.root_id)
-            if p and (is_inside(self.qroot, p) or is_inside(p, self.qroot)):
-                raise ConfigError(f"quarantine {self.qroot} overlaps root {r.name} ({p})")
-        if is_inside(self.qroot, self.env.project_home):
-            raise ConfigError(f"quarantine {self.qroot} is inside the project home")
-        os.makedirs(long_path(self.qroot), exist_ok=True)
-        return self.qroot
+            if p and (is_inside(self.override, p) or is_inside(p, self.override)):
+                raise ConfigError(f"quarantine_root {self.override} overlaps root {r.name} ({p}); leave it unset "
+                                  f"to use each root's {DELETE_FOLDER} folder")
+        if is_inside(self.override, self.env.project_home):
+            raise ConfigError(f"quarantine_root {self.override} is inside the project home")
+
+
 
     def abs_path(self, root_id: str, relpath: str) -> str:
         base = self.roots.get(root_id)
@@ -202,13 +227,13 @@ class Applier:
     def apply(self, *, batch_limit: int | None = None, progress=None) -> ApplyResult:
         progress = progress or (lambda s: None)
         self.check_machine()
-        qroot = self.check_quarantine_root()
+        self.check_override()
         res = ApplyResult(None)
         res.recovered = self.recover()
         saved = planner.latest_saved(self.conn)
         if saved is None:
             raise ApplyError("no saved plan: run 'photohaven plan' and review it first")
-        plan = planner.make_plan(self.conn, self.library, self.env.project_home, self.roots, str(qroot))
+        plan = planner.make_plan(self.conn, self.library, self.env.project_home, self.roots, self.override)
         saved_id, saved_digest, saved_items = saved
         if plan.digest != saved_digest or not {i.key() for i in plan.items} <= saved_items:
             raise ApplyError("the plan has changed since you last reviewed it (decisions or files changed). "
@@ -219,22 +244,22 @@ class Applier:
         if not items:
             return res
         force_copy = os.environ.get(FORCE_COPY_ENV) == "1"
-        copy_bytes = sum(i.size for i in items if force_copy or not planner.same_volume(self.roots[i.root_id], qroot))
-        free = shutil.disk_usage(long_path(qroot)).free
-        if copy_bytes > free:
-            raise ApplyError(f"the quarantine drive has {free:,} bytes free; this run needs {copy_bytes:,}. "
-                             "Free space, or use --batch-limit.")
+        need: dict[str, int] = {}
+        for i in items:
+            q = self.holding(i.root_id)
+            if force_copy or not planner.same_volume(self.roots[i.root_id], q):
+                need[str(q)] = need.get(str(q), 0) + i.size
+        for q, n in need.items():
+            free = shutil.disk_usage(planner._existing(q)).free
+            if n > free:
+                raise ApplyError(f"{q} has {free:,} bytes free; this run needs {n:,}. Free space, or use --batch-limit.")
         out = quarantine.out_of_library(quarantine.read_all(self.env.project_home, self.library.library_id)[0])
-        batch_id = new_batch_id()
-        res.batch_id = batch_id
-        manifest = qroot / batch_id / "manifest.jsonl"
-        os.makedirs(long_path(manifest.parent), exist_ok=True)
-        append_jsonl(manifest, manifest_header(batch_id, self.library.library_id, self.env.machine.machine_id,
-                                               saved_id, utc_now()), [])
-        self.conn.execute("INSERT INTO batches(batch_id, plan_id, machine_id, quarantine_root, created_at, state) "
-                          "VALUES(?,?,?,?,?, 'applying')",
-                          (batch_id, saved_id, self.env.machine.machine_id, str(qroot), utc_now()))
+        batches: dict[str, tuple[str, pathlib.Path]] = {}      # one batch per delete folder
         for n, it in enumerate(items, 1):
+            q = self.holding(it.root_id)
+            if str(q) not in batches:
+                batches[str(q)] = (self._new_batch(q, saved_id), q)
+            batch_id, qroot = batches[str(q)]
             progress(f"moving {n}/{len(items)}: {it.relpath}")
             reason = self._move_one(it, batch_id, qroot, force_copy, out)
             if reason:
@@ -242,10 +267,36 @@ class Applier:
             else:
                 res.moved += 1
                 res.moved_bytes += it.size
-        self.conn.execute("UPDATE batches SET state = 'applied' WHERE batch_id = ?", (batch_id,))
-        v = self.verify(batch_id)
-        res.verified, res.verify_failed = v
+        res.batch_ids = [b for b, _ in batches.values()]
+        res.batch_id = res.batch_ids[0] if res.batch_ids else None
+        for b in res.batch_ids:
+            self.conn.execute("UPDATE batches SET state = 'applied' WHERE batch_id = ?", (b,))
+            ok, failed = self.verify(b)
+            res.verified += ok
+            res.verify_failed += failed
         return res
+
+    def _new_batch(self, qroot: pathlib.Path, plan_id: str) -> str:
+        self.ensure_holding_at(qroot)
+        while True:
+            batch_id = new_batch_id()
+            if not self.conn.execute("SELECT 1 FROM batches WHERE batch_id = ?", (batch_id,)).fetchone():
+                break
+        manifest = qroot / batch_id / "manifest.jsonl"
+        os.makedirs(long_path(manifest.parent), exist_ok=True)
+        append_jsonl(manifest, manifest_header(batch_id, self.library.library_id, self.env.machine.machine_id,
+                                               plan_id, utc_now()), [])
+        self.conn.execute("INSERT INTO batches(batch_id, plan_id, machine_id, quarantine_root, created_at, state) "
+                          "VALUES(?,?,?,?,?, 'applying')",
+                          (batch_id, plan_id, self.env.machine.machine_id, str(qroot), utc_now()))
+        return batch_id
+
+    def ensure_holding_at(self, q: pathlib.Path) -> None:
+        os.makedirs(long_path(q), exist_ok=True)
+        readme = q / DELETE_README
+        if not os.path.exists(long_path(readme)):
+            with open(long_path(readme), "w", encoding="utf-8", newline="\r\n") as f:
+                f.write(README_TEXT)
 
     def _move_one(self, it: planner.Item, batch_id: str, qroot: pathlib.Path, force_copy: bool,
                   out: dict) -> str | None:
@@ -323,10 +374,30 @@ class Applier:
             crash_point("after_source_delete")
         return None
 
+    def note_hand_deleted(self, batch_id: str | None = None) -> int:
+        """Verified files that someone deleted from the delete folder by hand
+        (which D-10 allows) are logged as purged, once."""
+        q = ("SELECT q.*, b.quarantine_root FROM quarantine_items q JOIN batches b USING(batch_id) "
+             "WHERE q.state = 'verified'" + (" AND q.batch_id = ?" if batch_id else ""))
+        n = 0
+        for r in self.conn.execute(q, (batch_id,) if batch_id else ()).fetchall():
+            if os.path.exists(self.qpath_abs(r["quarantine_root"], r["qpath"])):
+                continue
+            ev = self.journal.new_event(batch_id=r["batch_id"], event="purged", root_id=r["root_id"], path=r["relpath"],
+                                        sha256=r["sha256"], size=r["size"], keeper_root_id=r["keeper_root_id"],
+                                        keeper_path=r["keeper_relpath"], qpath=r["qpath"],
+                                        detail="deleted outside Photo Haven")
+            self.journal.append(ev)
+            self.conn.execute("UPDATE quarantine_items SET state = 'purged', purged_at = ? WHERE batch_id = ? AND "
+                              "root_id = ? AND relpath = ?", (ev.at, r["batch_id"], r["root_id"], r["relpath"]))
+            n += 1
+        return n
+
     # --------------------------------------------------------------- verify
     def verify(self, batch_id: str | None = None) -> tuple[int, list[tuple[str, str]]]:
         """08 §6: every quarantined file re-hashes to its sha256, and every
         keeper still exists with the size and mtime it had at plan time."""
+        self.note_hand_deleted(batch_id)
         q = ("SELECT q.*, b.quarantine_root FROM quarantine_items q JOIN batches b USING(batch_id) "
              "WHERE q.state = 'moved'" + (" AND q.batch_id = ?" if batch_id else ""))
         rows = self.conn.execute(q, (batch_id,) if batch_id else ()).fetchall()
@@ -360,8 +431,8 @@ class Applier:
             else:
                 ok += 1
         for b in {r["batch_id"] for r in rows}:
-            bad = self.conn.execute("SELECT count(*) FROM quarantine_items WHERE batch_id = ? AND state != 'verified'",
-                                    (b,)).fetchone()[0]
+            bad = self.conn.execute("SELECT count(*) FROM quarantine_items WHERE batch_id = ? AND state NOT IN "
+                                    "('verified', 'purged')", (b,)).fetchone()[0]
             if not bad:
                 self.conn.execute("UPDATE batches SET state = 'verified' WHERE batch_id = ?", (b,))
         return ok, failed
@@ -378,8 +449,11 @@ def empty_folders(env) -> list[tuple[str, str, list[str]]]:
         if not base:
             continue
         removable: set[str] = set()
+        holding = os.path.normcase(os.path.join(long_path(base), DELETE_FOLDER))
         for dirpath, dirnames, filenames in os.walk(long_path(base), topdown=False):
             if os.path.normcase(dirpath) == os.path.normcase(long_path(base)):
+                continue
+            if os.path.normcase(dirpath) == holding or os.path.normcase(dirpath).startswith(holding + os.sep):
                 continue
             subdirs_ok = all(os.path.join(dirpath, d) in removable for d in dirnames)
             only_cache = all(f.startswith(".photohaven-cache.") and f.endswith(".jsonl") for f in filenames)

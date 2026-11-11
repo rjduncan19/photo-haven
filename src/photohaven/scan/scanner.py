@@ -22,7 +22,7 @@ from typing import Callable, Protocol
 
 from .. import TOOL, db
 from ..config import Library, LibrarySettings, MachineConfig, folder_flag
-from ..formats import (OWN_FILE_PREFIX, ROOT_MARKER, CacheFile, CacheHeader, FileFacts, FormatError,
+from ..formats import (DELETE_FOLDER, OWN_FILE_PREFIX, ROOT_MARKER, CacheFile, CacheHeader, FileFacts, FormatError,
                        RootMarker, cache_bytes, cache_file_name, facts_equal, is_cache_file_name, read_cache)
 from ..identity import Machine
 from ..util import (IS_WINDOWS, atomic_write_bytes, file_attributes, FILE_ATTRIBUTE_REPARSE_POINT, is_inside,
@@ -308,6 +308,8 @@ class Scanner:
                     self._warn(f"not following link {root.name}:{join_rel(rel, name)}")
                     continue
                 if de.is_dir(follow_symlinks=False):
+                    if rel == "" and name.casefold() == DELETE_FOLDER.casefold():
+                        continue        # Photo Haven's own delete folder: never library content
                     sub = rel_to_path(base, join_rel(rel, name))
                     if any(is_inside(sub, ex) for ex in excluded):
                         self._warn(f"skipping {sub}: Photo Haven's own data is inside a root (photohaven doctor)")

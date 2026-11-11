@@ -17,7 +17,14 @@ import sqlite3
 from . import analysis, quarantine
 from .config import Library, folder_flag
 from .decisions import PHASE, Resolver, ingest
+from .formats import DELETE_FOLDER
 from .util import atomic_write_text, long_path, name_key, rel_to_path, utc_now, uuid7
+
+
+def holding_root(root_path: str | os.PathLike, override: str | None) -> pathlib.Path:
+    """Where moved duplicates of this root go (D-10): `<root>/PhotoHaven-DELETE`,
+    unless machine.toml sets an explicit quarantine_root for every root."""
+    return pathlib.Path(override) if override else pathlib.Path(root_path) / DELETE_FOLDER
 
 
 @dataclasses.dataclass(frozen=True)
@@ -99,7 +106,7 @@ def make_plan(conn: sqlite3.Connection, library: Library, project_home: pathlib.
     groups: dict[str, list[sqlite3.Row]] = collections.defaultdict(list)
     for r in rows:
         groups[r["sha256"]].append(r)
-    q_same = {rid: bool(quarantine_root) and same_volume(p, quarantine_root) for rid, p in root_paths.items()}
+    q_same = {rid: same_volume(p, holding_root(p, quarantine_root)) for rid, p in root_paths.items()}
 
     def rank(r, eff):
         root = library.root(r["root_id"])
