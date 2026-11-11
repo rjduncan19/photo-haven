@@ -15,7 +15,7 @@ import shutil
 
 import pytest
 
-from photohaven import app
+from photohaven import analysis, app
 from photohaven.scan import ScanOptions
 from photohaven.util import long_path
 
@@ -73,6 +73,18 @@ def test_dupecases(tmp_path, exiftool_exe):
                 assert rows[f["path"]]["damaged"] == 1, f["path"]
             elif f["damaged"] is False:
                 assert rows[f["path"]]["damaged"] == 0, f["path"]
+        # M2: suggestions are coherent on the corpus, and the report builds
+        an = analysis.analyze(env.conn, env.library)
+        sugg = analysis.suggest_all(an)
+        for sha, inst in an.instances.items():
+            assert any(sugg[fid].action != "remove" for fid, _, _ in inst), sha
+        by_path = {f.relpath: fid for fid, f in an.folders.items()}
+        last_copy = [by_path[p] for p in ("Backup 2019", "Backup 2020/Pictures")]
+        assert {sugg[fid].action for fid in last_copy} == {"keep", "remove"}
+        assert sugg[by_path["Pictures/iPhone/2026-10"]].action != "remove"
+        assert "non-photo" in sugg[by_path["Backup 2026 (phone)"]].reason
+        rep = app.make_report(env, out=tmp_path / "report", thumbs=False)
+        assert rep.sections["contained"] >= 10 and rep.sections["contentEquiv"] == 3
         # a rescan hashes nothing; a rebuild reproduces the facts
         assert app.scan(env, ScanOptions()).files_hashed == 0
         before = sorted(tuple(r) for r in env.conn.execute("SELECT relpath, sha256, state FROM files"))

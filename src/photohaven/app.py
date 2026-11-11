@@ -11,7 +11,7 @@ import platform
 import re
 import sqlite3
 
-from . import db
+from . import db, decisions, link, report
 from .config import (ConfigError, Library, LibrarySettings, MachineConfig, RootInfo, default_state_dir,
                      LIBRARY_JSON, LIBRARY_TOML)
 from .formats import ROOT_MARKER, FormatError, RootMarker, is_cache_file_name
@@ -193,9 +193,12 @@ def scan(env: Env, opts: ScanOptions, *, describer=None, use_exiftool: bool = Tr
     if describer is None and use_exiftool and opts.hashing:
         et = describer = open_exiftool(env)
     try:
-        return Scanner(conn=env.conn, state_dir=env.state_dir, project_home=env.project_home, library=env.library,
-                       settings=env.settings, mcfg=env.mcfg, machine=env.machine, describer=describer,
-                       progress=progress).run(opts)
+        res = Scanner(conn=env.conn, state_dir=env.state_dir, project_home=env.project_home, library=env.library,
+                      settings=env.settings, mcfg=env.mcfg, machine=env.machine, describer=describer,
+                      progress=progress).run(opts)
+        link.run(env.conn, env.settings, res.scan_id)       # stage 6: relate (04)
+        res.warnings += decisions.ingest(env.conn, env.project_home, env.library.library_id)
+        return res
     finally:
         if et:
             et.close()
@@ -214,6 +217,34 @@ def rebuild_db(env: Env, progress=None) -> ScanResult:
     db.set_meta(env.conn, "library_id", env.library.library_id)
     db.set_meta(env.conn, "last_rebuild_at", utc_now())
     return scan(env, ScanOptions(hashing=False), use_exiftool=False, progress=progress)
+
+
+def make_report(env: Env, *, out: pathlib.Path | None = None, thumbs: bool = True, thumb_limit: int = 5000):
+    et = None
+    if thumbs:
+        try:
+            et = open_exiftool(env)
+        except ExifToolError:
+            et = None
+    try:
+        return report.build(env.conn, env.library, state_dir=env.state_dir, project_home=env.project_home,
+                            machine_name=env.machine.name, out=out, exiftool=et, thumb_limit=thumb_limit)
+    finally:
+        if et:
+            et.close()
+
+
+def parse_target_path(env: Env, s: str) -> tuple[str, str]:
+    """'ROOT:relpath' or, with a single root, 'relpath' -> (root_id, relpath)."""
+    if ":" in s and not (len(s) > 1 and s[1] == ":" and s[0].isalpha()):
+        root, _, rel = s.partition(":")
+        r = env.library.root(root)
+    else:
+        if len(env.library.roots) != 1:
+            raise ConfigError("this library has several roots: write ROOT:path")
+        r, rel = env.library.roots[0], s
+    rel = rel.replace("\\", "/").strip("/")
+    return r.root_id, rel
 
 
 # ------------------------------------------------------------------ status

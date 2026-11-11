@@ -38,10 +38,12 @@ Turn [03-format-spec](03-format-spec.md) from a draft into a binding contract, a
 
 ## M2: Link pass and report
 
-- [ ] `link`: dup groups, content-equivalent groups, edit links, flags, folder-name cleanup, `content_folder_names`. (Raw pairs and Live Photos: R1.)
-- [ ] Folder and pair statistics; containment; suggestion engine.
-- [ ] Static report: summary, easiest wins, fully redundant, overlap, warnings, tree; detail shards; thumbnails from embedded previews; localStorage; Export.
-- [ ] `decisions import`, `decisions list`, `decisions show-effective`.
+- [x] `link`: dup groups, content-equivalent groups, edit links, flags, folder-name cleanup, `content_folder_names`. (Raw pairs and Live Photos: R1.)
+- [x] Folder and pair statistics; containment; suggestion engine (`photohaven.analysis`).
+- [x] Static report: summary, easiest wins, redundant trees, fully redundant, overlap, copies inside one folder, same picture/different bytes, warnings, tree; detail shards; thumbnails from embedded previews; localStorage; Export.
+- [x] `decisions import`, `decisions list`, `decisions show-effective`, plus `decisions add` for command-line decisions.
+
+**Status (2026-11-11):** done. Checked by hand in a browser on the M0 corpus: accept suggestions, set a file decision, Export, `decisions import` (idempotent on re-import), `show-effective`; the export and the log validate against `spec/schemas`. Left for later: thumbnails for iPhone HEICs (they carry no embedded JPEG preview; needs a HEIC decoder, an optional dependency), and a JS test in CI (needs Node).
 
 **Done when:** on a fixture library with planted relationships, the report shows each one in the right section with the right suggestion, and an export round-trips into the log.
 

@@ -51,3 +51,6 @@ desktop.ini
 
 # Spike output (contains corpus file names)
 spike-results/
+
+# Claude Code dev preview config (local only)
+.claude/launch.json

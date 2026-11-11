@@ -1,6 +1,6 @@
 """Command-line entry point: `photohaven ...` (docs/02 "CLI").
 
-M1 commands: init, machine, root, scan, status, doctor, rebuild-db.
+Commands: init, machine, root, scan, report, decisions, status, doctor, rebuild-db.
 """
 from __future__ import annotations
 
@@ -103,6 +103,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--quiet", action="store_true")
     s.add_argument("--json", action="store_true", help="print the result as JSON")
 
+    s = sub.add_parser("report", help="generate the static HTML report")
+    s.add_argument("--out", type=pathlib.Path, help="report folder (default: local state reports/<report_id>)")
+    s.add_argument("--open", action="store_true", help="open it in the default browser")
+    s.add_argument("--no-thumbs", action="store_true")
+    s.add_argument("--thumb-limit", type=int, default=5000, help="new thumbnails to extract this run")
+
+    s = sub.add_parser("decisions", help="decision logs")
+    ds = s.add_subparsers(dest="sub", required=True)
+    d = ds.add_parser("import", help="append a report export to this machine's log")
+    d.add_argument("file", type=pathlib.Path)
+    d = ds.add_parser("list")
+    d.add_argument("--target", help="only decisions on this path or below")
+    d = ds.add_parser("show-effective", help="how the decision for a file is resolved")
+    d.add_argument("path", help="ROOT:relpath (or relpath with a single root)")
+    d = ds.add_parser("add", help="record a decision from the command line")
+    d.add_argument("action", choices=["keep", "remove", "undecided"])
+    d.add_argument("path", help="ROOT:relpath of a folder or file")
+    d.add_argument("--subtree", action="store_true", help="folder: apply to it and everything below")
+    d.add_argument("--note")
+
     s = sub.add_parser("status", help="counts, duplicates, last scan")
     s.add_argument("--json", action="store_true")
     sub.add_parser("doctor", help="check this machine's setup")
@@ -169,6 +189,16 @@ def _dispatch(args) -> int:
             prog.done()
             _print_scan(res, args.json)
             return 0 if not res.failed_roots else 1
+        elif args.cmd == "report":
+            res = app.make_report(env, out=args.out, thumbs=not args.no_thumbs, thumb_limit=args.thumb_limit)
+            index = res.path / "index.html"
+            print(f"report {res.report_id}: {index}")
+            print("  " + ", ".join(f"{k} {v}" for k, v in res.sections.items()) + f"; {res.thumbs_made} thumbnails made")
+            if args.open:
+                import webbrowser
+                webbrowser.open(index.as_uri())
+        elif args.cmd == "decisions":
+            return _decisions(env, args)
         elif args.cmd == "status":
             st = app.status(env)
             if args.json:
@@ -184,6 +214,66 @@ def _dispatch(args) -> int:
         return 0
     finally:
         env.close()
+
+
+def _decisions(env, args) -> int:
+    from . import decisions as dec
+    from .formats import Decision, Target
+    from .util import utc_now
+    if args.sub == "import":
+        r = dec.import_export(env.conn, env.project_home, env.state_dir, env.library, env.machine.machine_id, args.file)
+        for w in r.warnings:
+            print("warning: " + w, file=sys.stderr)
+        print(f"imported {r.added} decision(s) from report {r.report_id}; {r.skipped} already in the log")
+        return 0
+    dec.ingest(env.conn, env.project_home, env.library.library_id)
+    roots = {r.root_id: r.name for r in env.library.roots}
+    machines = {r[0]: r[1] for r in env.conn.execute("SELECT machine_id, name FROM machines")}
+    if args.sub == "list":
+        target = None
+        if args.target:
+            _, target = app.parse_target_path(env, args.target)
+        for r in dec.list_decisions(env.conn, target):
+            scope = r["scope"] or (r["sha256"][:12] if r["sha256"] else "")
+            print(f"{r['at']}  {machines.get(r['machine_id'], r['machine_id'][:8]):10} {r['action']:9} {r['target_kind']:6} "
+                  f"{scope:12} {roots.get(r['root_id'], '?')}:{r['path'] or '/'}" + (f"  # {r['note']}" if r["note"] else ""))
+        return 0
+    if args.sub == "show-effective":
+        root_id, rel = app.parse_target_path(env, args.path)
+        row = env.conn.execute("SELECT sha256 FROM files WHERE root_id = ? AND relpath = ?", (root_id, rel)).fetchone()
+        if row is None:
+            print(f"no file {args.path} in the database (scan first?)", file=sys.stderr)
+            return 2
+        e = dec.effective(env.conn, env.library, root_id, rel, row["sha256"])
+        for s in e.chain:
+            mark = "->" if s.used else "  "
+            print(f"{mark} {s.level:7} {s.action:9} {s.path or '/'}  ({s.at}, {machines.get(s.machine_id, s.machine_id[:8])})"
+                  + (f"  {s.note}" if s.note else ""))
+        print(f"effective: {e.action}" + (f" (from the {e.level} decision)" if e.level else " (no decision applies)"))
+        return 0
+    if args.sub == "add":
+        root_id, rel = app.parse_target_path(env, args.path)
+        f = env.conn.execute("SELECT sha256, size FROM files WHERE root_id = ? AND relpath = ? AND state = 'present'",
+                             (root_id, rel)).fetchone()
+        if f is not None:
+            if not f["sha256"]:
+                print("that file is not hashed yet; scan first", file=sys.stderr)
+                return 2
+            if args.subtree:
+                print("--subtree is for folders", file=sys.stderr)
+                return 2
+            t = Target("file", root_id, rel, sha256=f["sha256"], size=f["size"])
+        else:
+            if not env.conn.execute("SELECT 1 FROM folders WHERE root_id = ? AND relpath = ? AND present = 1",
+                                    (root_id, rel)).fetchone():
+                print(f"no folder or file {args.path} in the database (scan first?)", file=sys.stderr)
+                return 2
+            t = Target("folder", root_id, rel, scope="subtree" if args.subtree else "folder")
+        d = Decision(utc_now(), dec.PHASE, t, args.action, "cli", note=args.note)
+        dec.append(env.conn, env.project_home, env.library.library_id, env.machine.machine_id, [d])
+        print(f"recorded: {args.action} {t.kind} {args.path}" + (f" ({t.scope})" if t.scope else ""))
+        return 0
+    return 2
 
 
 def _print_scan(res, as_json: bool) -> None:

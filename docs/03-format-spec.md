@@ -310,7 +310,7 @@ Resolution (which decision is effective for an instance) is defined in [07 §5](
 
 ### 5.3 Decisions export file (from the report)
 
-The report's Export button produces `decisions-<report_id>.jsonl`: a header with `"kind":"decision-export"`, `library_id`, `report_id`, `scan_id`, and `generated_at`, then `decision` records **without** `id`, `machine_id`, or `seq`. `decisions import` refuses an export whose `library_id` is not this library's. `decisions import` assigns those and appends to the importing machine's log. Re-importing the same export is idempotent: a record whose `(report_id, target, action)` matches an existing record from the same report is skipped.
+The report's Export button produces `decisions-<report_id>.jsonl`: a header with `"kind":"decision-export"`, `library_id`, `report_id`, `scan_id`, and `generated_at`, then `decision` records **without** `id`, `machine_id`, or `seq`. `decisions import` refuses an export whose `library_id` is not this library's. `decisions import` assigns those, sets `origin` to `import`, and appends to the importing machine's log. Re-importing the same export is idempotent: a record whose `(report_id, target, action)` matches an existing record from the same report is skipped.
 
 ---
 

@@ -118,11 +118,13 @@ class JsonlFile:
     warnings: list[str]
 
 
-def read_jsonl(path: pathlib.Path | str, kind: str) -> JsonlFile:
+def read_jsonl(path: pathlib.Path | str, kind: str, *, append_only: bool = False) -> JsonlFile:
     """Read a JSONL file whose first line is a header of `kind`.
 
     A last line that fails to parse is ignored with a warning (§1.1, crash
-    mid-append). Any other bad line is a FormatError."""
+    mid-append). In an append-only log, a torn line stays in the middle once
+    the next writer appends after it on a fresh line, so there any bad line
+    after the header is skipped with a warning. Elsewhere it is a FormatError."""
     with open(long_path(path), "rb") as f:
         raw = f.read()
     if raw.startswith(b"\xef\xbb\xbf"):
@@ -139,9 +141,9 @@ def read_jsonl(path: pathlib.Path | str, kind: str) -> JsonlFile:
             if not isinstance(obj, dict):
                 raise ValueError("not an object")
         except ValueError as e:
-            if i == len(lines) - 1:
-                warnings.append(f"{path}:{i + 1}: ignored unreadable last line ({e})")
-                break
+            if i == len(lines) - 1 or (append_only and i > 0):
+                warnings.append(f"{path}:{i + 1}: ignored unreadable line ({e})")
+                continue
             raise FormatError(f"{path}:{i + 1}: bad line ({e})") from None
         objs.append(obj)
     if not objs or objs[0].get("record") != "header":
@@ -314,3 +316,140 @@ class RootMarker:
             return cls(d["library_id"], d["root_id"], d["name"], d["created_at"])
         except KeyError as e:
             raise FormatError(f"{path}: root marker missing {e}") from None
+
+
+# ------------------------------------------------------------ decisions (§5)
+
+DECISION_ACTIONS = ("keep", "remove", "undecided")
+
+
+@dataclasses.dataclass
+class Target:
+    kind: str                      # folder | file
+    root_id: str
+    path: str
+    scope: str | None = None       # folders: folder | subtree
+    sha256: str | None = None      # files
+    size: int | None = None
+
+    def to_json(self) -> dict:
+        return prune({"kind": self.kind, "root_id": self.root_id, "path": self.path, "scope": self.scope,
+                      "sha256": self.sha256, "size": self.size})
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Target":
+        if not isinstance(d, dict):
+            raise FormatError("target is not an object")
+        kind, path = d.get("kind"), d.get("path")
+        if kind not in ("folder", "file") or not isinstance(d.get("root_id"), str) or not isinstance(path, str):
+            raise FormatError(f"bad target {d!r}")
+        from .util import validate_relpath
+        try:
+            validate_relpath(path)
+        except ValueError as e:
+            raise FormatError(str(e)) from None
+        if kind == "folder":
+            if d.get("scope") not in ("folder", "subtree") or "sha256" in d or "size" in d:
+                raise FormatError(f"folder target needs a scope and no sha256/size: {d!r}")
+        else:
+            sha = d.get("sha256")
+            if not path or not isinstance(sha, str) or len(sha) != 64 or not isinstance(d.get("size"), int) \
+                    or "scope" in d:
+                raise FormatError(f"file target needs path, sha256 and size and no scope: {d!r}")
+        return cls(kind, d["root_id"], path, d.get("scope"), d.get("sha256"), d.get("size"))
+
+    def key(self) -> str:
+        return canonical(self.to_json())
+
+
+@dataclasses.dataclass
+class Decision:
+    """A §5.2 decision record. In an export (§5.3), id/machine_id/seq are None."""
+    at: str
+    phase: str
+    target: Target
+    action: str
+    origin: str
+    id: str | None = None
+    machine_id: str | None = None
+    seq: int | None = None
+    report_id: str | None = None
+    note: str | None = None
+    extra: dict = dataclasses.field(default_factory=dict)
+
+    def to_record(self) -> dict:
+        return {**self.extra, **prune({
+            "record": "decision", "id": self.id, "at": self.at, "machine_id": self.machine_id, "seq": self.seq,
+            "phase": self.phase, "target": self.target.to_json(), "action": self.action, "origin": self.origin,
+            "report_id": self.report_id, "note": self.note})}
+
+    @classmethod
+    def from_record(cls, d: dict) -> "Decision":
+        known = {"record", "id", "at", "machine_id", "seq", "phase", "target", "action", "origin", "report_id", "note"}
+        if d.get("action") not in DECISION_ACTIONS:
+            raise FormatError(f"bad action {d.get('action')!r}")
+        if d.get("origin") not in ("report", "cli", "import"):
+            raise FormatError(f"bad origin {d.get('origin')!r}")
+        if not isinstance(d.get("at"), str) or not isinstance(d.get("phase"), str):
+            raise FormatError("decision needs 'at' and 'phase'")
+        return cls(d["at"], d["phase"], Target.from_json(d.get("target")), d["action"], d["origin"], d.get("id"),
+                   d.get("machine_id"), d.get("seq"), d.get("report_id"), d.get("note") or None,
+                   {k: v for k, v in d.items() if k not in known})
+
+
+def read_decision_log(path) -> tuple[dict, list[Decision], list[str]]:
+    j = read_jsonl(path, "decision-log", append_only=True)
+    out, warnings = [], list(j.warnings)
+    for i, r in enumerate(j.records, 2):
+        if r.get("record") != "decision":
+            continue
+        try:
+            d = Decision.from_record(r)
+            if not (d.id and d.machine_id and isinstance(d.seq, int)):
+                raise FormatError("log record needs id, machine_id and seq")
+            out.append(d)
+        except FormatError as e:
+            warnings.append(f"{path}:{i}: ignored decision ({e})")
+    return j.header, out, warnings
+
+
+def read_decision_export(path) -> tuple[dict, list[Decision]]:
+    j = read_jsonl(path, "decision-export")
+    for k in ("library_id", "report_id", "generated_at"):
+        if k not in j.header:
+            raise FormatError(f"{path}: export header missing {k}")
+    out = []
+    for i, r in enumerate(j.records, 2):
+        if r.get("record") != "decision":
+            continue
+        try:
+            out.append(Decision.from_record(r))
+        except FormatError as e:
+            raise FormatError(f"{path}:{i}: {e}") from None
+    return j.header, out
+
+
+def decision_log_header(library_id: str, machine_id: str, created_at: str) -> dict:
+    return {"record": "header", "schema": SPEC_VERSION, "kind": "decision-log", "library_id": library_id,
+            "machine_id": machine_id, "created_at": created_at}
+
+
+def append_jsonl(path, header: dict, records: list[dict]) -> None:
+    """Append records to an append-only log, creating it with `header`.
+    A torn last line (crash mid-append) is left behind and the new records
+    start on a fresh line (§1.1)."""
+    p = long_path(path)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    new = not os.path.exists(p) or os.path.getsize(p) == 0
+    with open(p, "ab+") as f:
+        prefix = b""
+        if new:
+            prefix = (canonical(header) + "\n").encode("utf-8")
+        else:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                prefix = b"\n"
+        f.seek(0, os.SEEK_END)
+        f.write(prefix + "".join(canonical(r) + "\n" for r in records).encode("utf-8"))
+        f.flush()
+        os.fsync(f.fileno())
